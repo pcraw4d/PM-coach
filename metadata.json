@@ -1,0 +1,7 @@
+{
+  "name": "PM Coach AI",
+  "description": "A high-performance interview practice platform for Product Managers to master Product Sense and Analytical Thinking using voice interaction and AI-driven feedback.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
