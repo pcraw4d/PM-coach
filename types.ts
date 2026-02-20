@@ -4,6 +4,13 @@ export enum InterviewType {
   ANALYTICAL_THINKING = 'ANALYTICAL_THINKING'
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatarSeed: string;
+}
+
 export interface Question {
   id: string;
   type: InterviewType;
@@ -23,14 +30,38 @@ export interface Resource {
   type: 'reading' | 'video';
 }
 
+export interface ImprovementItem {
+  category: string;
+  action: string;
+  effort: 'Low' | 'Medium' | 'High';
+  impact: 'Low' | 'Medium' | 'High';
+}
+
+export interface CommunicationAnalysis {
+  tone: string;
+  confidenceScore: number;
+  clarityScore: number;
+  overallAssessment: 'Strong' | 'Average' | 'Needs Work';
+  summary: string;
+}
+
 export interface InterviewResult {
   overallScore: number;
   transcription: string;
   rubricScores: FeedbackScore[];
   strengths: string[];
   weaknesses: string[];
-  improvementAreas: string[];
+  improvementItems: ImprovementItem[];
   recommendedResources: Resource[];
+  communicationAnalysis: CommunicationAnalysis;
 }
 
-export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'result';
+export interface StoredInterview {
+  id: string;
+  timestamp: number;
+  questionTitle: string;
+  type: InterviewType;
+  result: InterviewResult;
+}
+
+export type InterviewPhase = 'auth' | 'config' | 'question' | 'recording' | 'analyzing' | 'result' | 'history';

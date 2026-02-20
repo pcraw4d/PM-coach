@@ -1,18 +1,74 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header, Container } from './components/Layout';
 import { Recorder } from './components/Recorder';
 import { FeedbackView } from './components/FeedbackView';
-import { InterviewType, Question, InterviewPhase, InterviewResult } from './types';
+import { HistoryList } from './components/HistoryList';
+import { AuthView } from './components/AuthView';
+import { InterviewType, Question, InterviewPhase, InterviewResult, StoredInterview, User } from './types';
 import { QUESTIONS } from './constants.tsx';
 import { geminiService } from './services/geminiService';
 
 const App: React.FC = () => {
-  const [phase, setPhase] = useState<InterviewPhase>('config');
+  const [user, setUser] = useState<User | null>(null);
+  const [phase, setPhase] = useState<InterviewPhase>('auth');
   const [selectedType, setSelectedType] = useState<InterviewType | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<InterviewResult | null>(null);
+  const [history, setHistory] = useState<StoredInterview[]>([]);
+
+  // Check for active session on mount
+  useEffect(() => {
+    const activeUserId = localStorage.getItem('pm_coach_active_user_id');
+    if (activeUserId) {
+      const users = JSON.parse(localStorage.getItem('pm_coach_users') || '[]');
+      const foundUser = users.find((u: any) => u.id === activeUserId);
+      if (foundUser) {
+        handleAuthSuccess({
+          id: foundUser.id,
+          name: foundUser.name,
+          email: foundUser.email,
+          avatarSeed: foundUser.avatarSeed
+        });
+      }
+    }
+  }, []);
+
+  // Load user-specific history when user changes
+  useEffect(() => {
+    if (user) {
+      const saved = localStorage.getItem(`pm_history_${user.id}`);
+      if (saved) {
+        try {
+          setHistory(JSON.parse(saved));
+        } catch (e) {
+          console.error("Failed to parse history", e);
+        }
+      } else {
+        setHistory([]);
+      }
+    }
+  }, [user]);
+
+  // Save history to localStorage whenever it changes
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem(`pm_history_${user.id}`, JSON.stringify(history));
+    }
+  }, [history, user]);
+
+  const handleAuthSuccess = (authUser: User) => {
+    setUser(authUser);
+    localStorage.setItem('pm_coach_active_user_id', authUser.id);
+    setPhase('config');
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('pm_coach_active_user_id');
+    setPhase('auth');
+  };
 
   const startInterview = (type: InterviewType) => {
     const typeQuestions = QUESTIONS.filter(q => q.type === type);
@@ -35,7 +91,7 @@ const App: React.FC = () => {
   };
 
   const handleRecordingStop = async (blob: Blob) => {
-    if (!currentQuestion || !selectedType) return;
+    if (!currentQuestion || !selectedType || !user) return;
     
     setIsProcessing(true);
     setPhase('analyzing');
@@ -48,6 +104,16 @@ const App: React.FC = () => {
         base64,
         'audio/webm'
       );
+      
+      const newEntry: StoredInterview = {
+        id: crypto.randomUUID(),
+        timestamp: Date.now(),
+        questionTitle: currentQuestion.text,
+        type: selectedType,
+        result: feedback
+      };
+      
+      setHistory(prev => [newEntry, ...prev]);
       setResult(feedback);
       setPhase('result');
     } catch (err) {
@@ -56,6 +122,19 @@ const App: React.FC = () => {
       setPhase('question');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const viewHistoryItem = (item: StoredInterview) => {
+    setSelectedType(item.type);
+    setResult(item.result);
+    setPhase('result');
+  };
+
+  const clearHistory = () => {
+    if (user) {
+      setHistory([]);
+      localStorage.removeItem(`pm_history_${user.id}`);
     }
   };
 
@@ -68,17 +147,25 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header />
+      <Header 
+        user={user}
+        onShowHistory={() => setPhase('history')} 
+        onShowHome={() => setPhase(user ? 'config' : 'auth')} 
+        onLogout={handleLogout}
+      />
       <Container>
-        {phase === 'config' && (
+        {phase === 'auth' && (
+          <AuthView onAuthSuccess={handleAuthSuccess} />
+        )}
+
+        {phase === 'config' && user && (
           <div className="text-center space-y-12 py-10 animate-in fade-in zoom-in-95 duration-500">
             <div className="space-y-4">
               <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
                 Master the <span className="text-indigo-600">Product Manager</span> Interview
               </h1>
               <p className="text-xl text-slate-500 max-w-2xl mx-auto leading-relaxed">
-                Select an interview track. Our AI analyzes your voice response using the 
-                <span className="font-semibold text-slate-900"> Lenny's Newsletter PM Framework</span>.
+                Welcome back, <span className="text-indigo-600 font-bold">{user.name}</span>! Select an interview track.
               </p>
             </div>
 
@@ -94,7 +181,7 @@ const App: React.FC = () => {
                 </div>
                 <h3 className="text-2xl font-bold text-slate-900 mb-2">Product Sense</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">
-                  Practice user-centric design & vision. Graded via the Jackie Bavaro methodology for high-impact product design.
+                  Practice user-centric design & vision.
                 </p>
                 <div className="mt-6 flex items-center text-indigo-600 font-semibold text-sm">
                   Start Practice <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
@@ -112,13 +199,25 @@ const App: React.FC = () => {
                 </div>
                 <h3 className="text-2xl font-bold text-slate-900 mb-2">Analytical Thinking</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">
-                  Focus on metrics, root cause analysis, and market sizing. Structured via industry-standard analytical frameworks.
+                  Focus on metrics, root cause analysis, and market sizing.
                 </p>
                 <div className="mt-6 flex items-center text-emerald-600 font-semibold text-sm">
                   Start Practice <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                 </div>
               </button>
             </div>
+
+            {history.length > 0 && (
+              <button 
+                onClick={() => setPhase('history')}
+                className="inline-flex items-center space-x-2 text-slate-400 hover:text-slate-600 transition font-medium text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Review your {history.length} past results</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -151,11 +250,19 @@ const App: React.FC = () => {
             isProductSense={selectedType === InterviewType.PRODUCT_SENSE} 
           />
         )}
+
+        {phase === 'history' && (
+          <HistoryList 
+            history={history} 
+            onSelect={viewHistoryItem} 
+            onClear={clearHistory}
+          />
+        )}
       </Container>
       
       <footer className="mt-auto py-8 border-t border-slate-200">
         <div className="max-w-7xl mx-auto px-4 text-center text-slate-400 text-sm">
-          Powered by Gemini 3 AI &bull; Based on Lenny's Newsletter Frameworks
+          Powered by Gemini 3 AI &bull; Personalized PM Coaching Dashboard
         </div>
       </footer>
     </div>
