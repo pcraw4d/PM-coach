@@ -10,6 +10,7 @@ export interface User {
   email: string;
   avatarSeed: string;
   joinedAt: number;
+  hasCompletedOnboarding?: boolean;
 }
 
 export interface Question {
@@ -17,6 +18,7 @@ export interface Question {
   type: InterviewType;
   text: string;
   hint?: string;
+  isCustom?: boolean;
 }
 
 export interface FeedbackScore {
@@ -65,4 +67,4 @@ export interface StoredInterview {
   result: InterviewResult;
 }
 
-export type InterviewPhase = 'auth' | 'config' | 'question' | 'recording' | 'analyzing' | 'result' | 'history' | 'settings';
+export type InterviewPhase = 'auth' | 'onboarding' | 'config' | 'question' | 'recording' | 'analyzing' | 'result' | 'history' | 'settings' | 'custom-input';

@@ -6,19 +6,31 @@ import { RUBRICS } from "../constants";
 export class GeminiService {
   constructor() {}
 
+  private extractJson(text: string): any {
+    try {
+      // Handle cases where the model wraps the response in markdown code blocks
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      return JSON.parse(text);
+    } catch (e) {
+      console.error("Failed to parse JSON from response", text);
+      throw new Error("The AI returned an invalid response format. Please try again.");
+    }
+  }
+
   async analyzeResponse(
     type: InterviewType,
     question: string,
     audioBase64: string,
-    mimeType: string,
-    onStream?: (text: string) => void
+    mimeType: string
   ): Promise<InterviewResult> {
+    // Re-initialize to ensure we use the most up-to-date key
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const rubric = RUBRICS[type].join(", ");
     
-    const productSenseInstruction = `Use industry standard rubrics for Product Sense interviews. As a technical reference, evaluate performance based on frameworks similar to: https://www.lennysnewsletter.com/p/the-definitive-guide-to-mastering (The Definitive Guide to Mastering the Product Sense Interview).`;
-
-    const analyticalInstruction = `Use industry standard rubrics for Execution and Analytical PM interviews. As a technical reference, evaluate performance based on frameworks similar to: https://www.lennysnewsletter.com/p/the-definitive-guide-to-mastering-f81 (The Definitive Guide to Mastering the Execution Interview).`;
+    const productSenseInstruction = `Use industry standard rubrics for Product Sense interviews. Evaluate performance based on frameworks similar to the ones used by top tech companies like Google and Meta. Focus on user-centricity and visionary thinking.`;
+    const analyticalInstruction = `Use industry standard rubrics for Execution and Analytical PM interviews. Evaluate performance based on frameworks similar to the ones used by top tech companies like Google and Meta. Focus on metrics, trade-offs, and root-cause analysis.`;
 
     const specificInstruction = type === InterviewType.PRODUCT_SENSE ? productSenseInstruction : analyticalInstruction;
 
@@ -33,15 +45,19 @@ export class GeminiService {
             }
           },
           {
-            text: `You are a world-class Product Management Interview Coach. 
-            I have just answered an interview question. 
-            Question Type: ${type}
+            text: `You are an elite Product Management Interview Coach. Analyze this audio response.
+            Type: ${type}
             Question: "${question}"
             
             ${specificInstruction}
 
-            Analyze my audio response and provide a detailed breakdown in JSON format.
-            Include: transcription, overallScore (0-100), rubricScores (1-10 per item), communicationAnalysis, strengths, weaknesses, improvementItems (categorized: Structuring, Content, Delivery), and recommendedResources.`
+            CRITICAL SCORING RULES:
+            - overallScore: Must be an integer between 0 and 100.
+            - rubricScores: For each category, 'score' MUST be an integer between 0 and 10. (e.g., 7 means 7/10).
+            - communicationAnalysis: 'confidenceScore' and 'clarityScore' MUST be integers between 0 and 10.
+
+            Provide a detailed breakdown in JSON format. 
+            Include: overallScore, transcription, rubricScores (array of {category, score, reasoning}), communicationAnalysis (object with tone, confidenceScore, clarityScore, overallAssessment, summary), strengths (array), weaknesses (array), improvementItems (array of {category, action, effort, impact}), and recommendedResources (array of {title, url, type}).`
           }
         ]
       },
@@ -50,7 +66,7 @@ export class GeminiService {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            overallScore: { type: Type.NUMBER },
+            overallScore: { type: Type.NUMBER, description: "Total score from 0-100" },
             transcription: { type: Type.STRING },
             rubricScores: {
               type: Type.ARRAY,
@@ -58,7 +74,7 @@ export class GeminiService {
                 type: Type.OBJECT,
                 properties: {
                   category: { type: Type.STRING },
-                  score: { type: Type.NUMBER },
+                  score: { type: Type.NUMBER, description: "Score for this category from 0-10" },
                   reasoning: { type: Type.STRING }
                 },
                 required: ["category", "score", "reasoning"]
@@ -68,8 +84,8 @@ export class GeminiService {
               type: Type.OBJECT,
               properties: {
                 tone: { type: Type.STRING },
-                confidenceScore: { type: Type.NUMBER },
-                clarityScore: { type: Type.NUMBER },
+                confidenceScore: { type: Type.NUMBER, description: "0-10" },
+                clarityScore: { type: Type.NUMBER, description: "0-10" },
                 overallAssessment: { type: Type.STRING },
                 summary: { type: Type.STRING }
               },
@@ -103,21 +119,12 @@ export class GeminiService {
               }
             }
           },
-          required: [
-            "overallScore", 
-            "transcription", 
-            "rubricScores", 
-            "communicationAnalysis", 
-            "strengths", 
-            "weaknesses", 
-            "improvementItems", 
-            "recommendedResources"
-          ]
+          required: ["overallScore", "transcription", "rubricScores", "communicationAnalysis", "strengths", "weaknesses", "improvementItems", "recommendedResources"]
         }
       }
     });
 
-    return JSON.parse(response.text.trim()) as InterviewResult;
+    return this.extractJson(response.text);
   }
 }
 

@@ -44,6 +44,10 @@ const CommunicationEvaluation: React.FC<{ analysis: CommunicationAnalysis }> = (
     'Needs Work': 'bg-rose-500 text-white'
   };
 
+  // Ensure communication scores are clamped between 0 and 10 for UI consistency
+  const confidence = Math.min(10, Math.max(0, analysis.confidenceScore));
+  const clarity = Math.min(10, Math.max(0, analysis.clarityScore));
+
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 overflow-hidden relative">
       <div className="flex justify-between items-start mb-6">
@@ -60,21 +64,21 @@ const CommunicationEvaluation: React.FC<{ analysis: CommunicationAnalysis }> = (
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Confidence</p>
           <div className="flex items-end gap-1">
-            <span className="text-2xl font-bold text-slate-800 leading-none">{analysis.confidenceScore}</span>
+            <span className="text-2xl font-bold text-slate-800 leading-none">{confidence}</span>
             <span className="text-xs text-slate-400 font-medium mb-0.5">/10</span>
           </div>
           <div className="w-full bg-slate-200 h-1 rounded-full mt-2">
-            <div className="bg-indigo-500 h-1 rounded-full" style={{ width: `${analysis.confidenceScore * 10}%` }}></div>
+            <div className="bg-indigo-500 h-1 rounded-full" style={{ width: `${confidence * 10}%` }}></div>
           </div>
         </div>
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Clarity</p>
           <div className="flex items-end gap-1">
-            <span className="text-2xl font-bold text-slate-800 leading-none">{analysis.clarityScore}</span>
+            <span className="text-2xl font-bold text-slate-800 leading-none">{clarity}</span>
             <span className="text-xs text-slate-400 font-medium mb-0.5">/10</span>
           </div>
           <div className="w-full bg-slate-200 h-1 rounded-full mt-2">
-            <div className="bg-emerald-500 h-1 rounded-full" style={{ width: `${analysis.clarityScore * 10}%` }}></div>
+            <div className="bg-emerald-500 h-1 rounded-full" style={{ width: `${clarity * 10}%` }}></div>
           </div>
         </div>
       </div>
@@ -96,11 +100,21 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
   const [activeCategory, setActiveCategory] = useState<string | 'All'>('All');
   const [sortBy, setSortBy] = useState<'impact' | 'effort'>('impact');
 
-  const radarData = result.rubricScores.map(rs => ({
-    subject: rs.category,
-    A: rs.score,
-    fullMark: 10
-  }));
+  // We map scores carefully. If the AI returns a score like 20 (out of 100), 
+  // we treat it as 2/10 for the UI if it exceeds 10, or just clamp it.
+  // Ideally, the updated system prompt fixes this at the source.
+  const radarData = result.rubricScores.map(rs => {
+    let displayScore = rs.score;
+    // Safety check: If model returns a percentage instead of a 0-10 value
+    if (displayScore > 10) displayScore = displayScore / 10;
+    displayScore = Math.min(10, Math.max(0, displayScore));
+    
+    return {
+      subject: rs.category,
+      A: displayScore,
+      fullMark: 10
+    };
+  });
 
   const categoryStats = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -154,7 +168,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
         </div>
         <div className="flex items-center justify-center w-28 h-28 rounded-full bg-white/10 backdrop-blur-md border-4 border-white/20">
           <div className="text-center">
-            <span className="block text-3xl font-black leading-none">{result.overallScore}</span>
+            <span className="block text-3xl font-black leading-none">{Math.min(100, Math.max(0, result.overallScore))}</span>
             <span className="text-[10px] uppercase font-bold tracking-widest opacity-70">Overall</span>
           </div>
         </div>
@@ -180,15 +194,21 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
             </div>
             
             <div className="space-y-4">
-               {result.rubricScores.map((score, idx) => (
-                 <div key={idx} className="space-y-1 border-l-2 border-indigo-100 pl-4">
-                   <div className="flex justify-between text-sm">
-                     <span className="font-semibold text-slate-700">{score.category}</span>
-                     <span className="font-bold text-indigo-600">{score.score}/10</span>
-                   </div>
-                   <p className="text-xs text-slate-500 leading-relaxed">{score.reasoning}</p>
-                 </div>
-               ))}
+               {result.rubricScores.map((score, idx) => {
+                 let displayScore = score.score;
+                 if (displayScore > 10) displayScore = displayScore / 10;
+                 displayScore = Math.min(10, Math.max(0, displayScore));
+
+                 return (
+                  <div key={idx} className="space-y-1 border-l-2 border-indigo-100 pl-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-slate-700">{score.category}</span>
+                      <span className="font-bold text-indigo-600">{displayScore}/10</span>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed">{score.reasoning}</p>
+                  </div>
+                 )
+               })}
             </div>
           </div>
 

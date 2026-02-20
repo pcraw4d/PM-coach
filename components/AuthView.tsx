@@ -98,7 +98,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             </svg>
           </div>
           <h2 className="text-4xl font-black text-slate-900 tracking-tight">
-            {isLogin ? 'Welcome Back' : 'Join the Elite'}
+            {isLogin ? 'Welcome Back' : 'Ready to Prep'}
           </h2>
           <p className="text-slate-500 mt-3 font-medium text-lg leading-relaxed">
             {isLogin ? 'Continue your PM mastery journey' : 'Start tracking your interview performance'}
