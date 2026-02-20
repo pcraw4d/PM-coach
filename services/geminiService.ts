@@ -10,19 +10,15 @@ export class GeminiService {
     type: InterviewType,
     question: string,
     audioBase64: string,
-    mimeType: string
+    mimeType: string,
+    onStream?: (text: string) => void
   ): Promise<InterviewResult> {
-    // Fix: Initialization follows the requirement to use process.env.API_KEY directly.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const rubric = RUBRICS[type].join(", ");
     
-    const productSenseInstruction = `Use industry standard rubrics for Product Sense interviews. As a technical reference, evaluate performance based on frameworks similar to: https://www.lennysnewsletter.com/p/the-definitive-guide-to-mastering (The Definitive Guide to Mastering the Product Sense Interview).
-         Ensure the feedback evaluates how well the user clarified the mission, identified diverse user segments, picked a high-impact pain point, 
-         brainstormed creative solutions (10x thinking), and discussed trade-offs/metrics.`;
+    const productSenseInstruction = `Use industry standard rubrics for Product Sense interviews. As a technical reference, evaluate performance based on frameworks similar to: https://www.lennysnewsletter.com/p/the-definitive-guide-to-mastering (The Definitive Guide to Mastering the Product Sense Interview).`;
 
-    const analyticalInstruction = `Use industry standard rubrics for Execution and Analytical PM interviews. As a technical reference, evaluate performance based on frameworks similar to: https://www.lennysnewsletter.com/p/the-definitive-guide-to-mastering-f81 (The Definitive Guide to Mastering the Execution Interview).
-         Ensure the feedback evaluates how well the user structured their investigation, applied root cause analysis (for troubleshooting questions), 
-         defined North Star and counter-metrics (for goal-setting questions), and analyzed strategic trade-offs.`;
+    const analyticalInstruction = `Use industry standard rubrics for Execution and Analytical PM interviews. As a technical reference, evaluate performance based on frameworks similar to: https://www.lennysnewsletter.com/p/the-definitive-guide-to-mastering-f81 (The Definitive Guide to Mastering the Execution Interview).`;
 
     const specificInstruction = type === InterviewType.PRODUCT_SENSE ? productSenseInstruction : analyticalInstruction;
 
@@ -44,20 +40,8 @@ export class GeminiService {
             
             ${specificInstruction}
 
-            Please analyze my audio response based on the following:
-            1. Rubric items: ${rubric}.
-            2. Communication quality: Evaluate my tone, confidence, and clarity of speech.
-            
-            Provide a detailed score and breakdown in JSON format.
-            
-            Include:
-            1. Full transcription.
-            2. Overall score (0-100).
-            3. Rubric scores (1-10) with reasoning.
-            4. Communication Analysis: A high-level evaluation of 'tone', 'confidenceScore' (1-10), 'clarityScore' (1-10), an 'overallAssessment' (Strong, Average, Needs Work), and a brief 'summary' of the soft skills performance.
-            5. Bullet points for key Strengths and Weaknesses.
-            6. A list of improvement items. IMPORTANT: Each item MUST be categorized as either 'Structuring', 'Content', or 'Delivery'.
-            7. Specific learning resources.`
+            Analyze my audio response and provide a detailed breakdown in JSON format.
+            Include: transcription, overallScore (0-100), rubricScores (1-10 per item), communicationAnalysis, strengths, weaknesses, improvementItems (categorized: Structuring, Content, Delivery), and recommendedResources.`
           }
         ]
       },
@@ -98,10 +82,7 @@ export class GeminiService {
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  category: { 
-                    type: Type.STRING,
-                    description: "Must be one of: Structuring, Content, or Delivery" 
-                  },
+                  category: { type: Type.STRING },
                   action: { type: Type.STRING },
                   effort: { type: Type.STRING },
                   impact: { type: Type.STRING }
@@ -116,7 +97,7 @@ export class GeminiService {
                 properties: {
                   title: { type: Type.STRING },
                   url: { type: Type.STRING },
-                  type: { type: Type.STRING, description: "Must be 'reading' or 'video'" }
+                  type: { type: Type.STRING }
                 },
                 required: ["title", "url", "type"]
               }

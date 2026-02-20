@@ -12,6 +12,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState('');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -33,9 +34,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       return;
     }
 
+    if (!isLogin && !agreedToTerms) {
+      setError('You must agree to the Terms and Privacy Policy');
+      return;
+    }
+
     setLoading(true);
 
-    // Artificial delay for "world-class" feel
     setTimeout(() => {
       const users = JSON.parse(localStorage.getItem('pm_coach_users') || '[]');
 
@@ -46,7 +51,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             id: user.id,
             name: user.name,
             email: user.email,
-            avatarSeed: user.avatarSeed
+            avatarSeed: user.avatarSeed,
+            joinedAt: user.joinedAt || Date.now()
           });
         } else {
           setError('Invalid email or password');
@@ -64,7 +70,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           name: name || 'Product Manager',
           email,
           password,
-          avatarSeed: Math.random().toString(36).substring(7)
+          avatarSeed: Math.random().toString(36).substring(7),
+          joinedAt: Date.now()
         };
         
         localStorage.setItem('pm_coach_users', JSON.stringify([...users, newUser]));
@@ -72,7 +79,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           id: newUser.id,
           name: newUser.name,
           email: newUser.email,
-          avatarSeed: newUser.avatarSeed
+          avatarSeed: newUser.avatarSeed,
+          joinedAt: newUser.joinedAt
         });
       }
     }, 800);
@@ -81,7 +89,6 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   return (
     <div className="max-w-md mx-auto py-8 animate-in fade-in zoom-in-95 duration-500">
       <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-100 relative overflow-hidden">
-        {/* Subtle background decoration */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
         
         <div className="text-center mb-10 relative z-10">
@@ -102,16 +109,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           {!isLogin && (
             <div className="space-y-1">
               <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all font-medium"
-                  placeholder="e.g. Satya Nadella"
-                />
-              </div>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all font-medium"
+                placeholder="e.g. Satya Nadella"
+              />
             </div>
           )}
           
@@ -151,6 +156,20 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               </button>
             </div>
           </div>
+
+          {!isLogin && (
+            <label className="flex items-start space-x-3 cursor-pointer group mt-2">
+              <input 
+                type="checkbox" 
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span className="text-[11px] text-slate-500 font-medium leading-relaxed group-hover:text-slate-700 transition">
+                I agree to the <span className="text-indigo-600 font-bold">Terms of Service</span> and acknowledge that my voice data is processed by <span className="text-indigo-600 font-bold">Gemini AI</span> for interview analysis.
+              </span>
+            </label>
+          )}
 
           {error && (
             <div className="bg-rose-50 border border-rose-100 text-rose-600 px-4 py-3 rounded-xl text-xs font-bold flex items-center animate-in slide-in-from-top-1">

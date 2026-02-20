@@ -5,6 +5,7 @@ import { Recorder } from './components/Recorder';
 import { FeedbackView } from './components/FeedbackView';
 import { HistoryList } from './components/HistoryList';
 import { AuthView } from './components/AuthView';
+import { SettingsView } from './components/SettingsView';
 import { InterviewType, Question, InterviewPhase, InterviewResult, StoredInterview, User } from './types';
 import { QUESTIONS } from './constants.tsx';
 import { geminiService } from './services/geminiService';
@@ -29,7 +30,8 @@ const App: React.FC = () => {
           id: foundUser.id,
           name: foundUser.name,
           email: foundUser.email,
-          avatarSeed: foundUser.avatarSeed
+          avatarSeed: foundUser.avatarSeed,
+          joinedAt: foundUser.joinedAt || Date.now()
         });
         setPhase('config');
       }
@@ -71,6 +73,26 @@ const App: React.FC = () => {
     setPhase('auth');
     setHistory([]);
     setResult(null);
+  };
+
+  const handleUpdateProfile = (updates: Partial<User>) => {
+    if (!user) return;
+    const updatedUser = { ...user, ...updates };
+    setUser(updatedUser);
+    
+    // Update in "db" (localStorage)
+    const users = JSON.parse(localStorage.getItem('pm_coach_users') || '[]');
+    const updatedUsers = users.map((u: any) => u.id === user.id ? { ...u, ...updates } : u);
+    localStorage.setItem('pm_coach_users', JSON.stringify(updatedUsers));
+  };
+
+  const handleDeleteAccount = () => {
+    if (!user) return;
+    const users = JSON.parse(localStorage.getItem('pm_coach_users') || '[]');
+    const filteredUsers = users.filter((u: any) => u.id !== user.id);
+    localStorage.setItem('pm_coach_users', JSON.stringify(filteredUsers));
+    localStorage.removeItem(`pm_history_${user.id}`);
+    handleLogout();
   };
 
   const startInterview = (type: InterviewType) => {
@@ -154,11 +176,21 @@ const App: React.FC = () => {
         user={user}
         onShowHistory={() => setPhase('history')} 
         onShowHome={() => setPhase(user ? 'config' : 'auth')} 
+        onShowSettings={() => setPhase('settings')}
         onLogout={handleLogout}
       />
       <Container>
         {phase === 'auth' && (
           <AuthView onAuthSuccess={handleAuthSuccess} />
+        )}
+
+        {phase === 'settings' && user && (
+          <SettingsView 
+            user={user} 
+            onUpdate={handleUpdateProfile} 
+            onDeleteAccount={handleDeleteAccount}
+            onBack={() => setPhase('config')}
+          />
         )}
 
         {phase === 'config' && user && (
@@ -285,7 +317,7 @@ const App: React.FC = () => {
       
       <footer className="mt-auto py-8 border-t border-slate-200">
         <div className="max-w-7xl mx-auto px-4 text-center text-slate-400 text-[10px] font-bold uppercase tracking-[0.3em]">
-          Gemini 3 Powered &bull; Personalized PM Coaching &bull; v2.0
+          Gemini 3 Powered &bull; Personalized PM Coaching &bull; v3.0-Production-Ready
         </div>
       </footer>
     </div>

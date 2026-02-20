@@ -9,6 +9,7 @@ export interface User {
   name: string;
   email: string;
   avatarSeed: string;
+  joinedAt: number;
 }
 
 export interface Question {
@@ -64,4 +65,4 @@ export interface StoredInterview {
   result: InterviewResult;
 }
 
-export type InterviewPhase = 'auth' | 'config' | 'question' | 'recording' | 'analyzing' | 'result' | 'history';
+export type InterviewPhase = 'auth' | 'config' | 'question' | 'recording' | 'analyzing' | 'result' | 'history' | 'settings';
