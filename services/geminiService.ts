@@ -90,7 +90,22 @@ export class GeminiService {
   ): Promise<InterviewResult> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const systemInstruction = `You are an Uncompromising VP of Product at a Tier-1 Tech Giant, evaluating candidates for Principal/Staff level Product Manager roles ($500k+ compensation band). Your bar is exceptionally high. Your feedback style is 'tough love' – surgically precise, logical, and devoid of generic platitudes. Focus intensely on what differentiates a truly elite Staff PM from a Senior PM, specifically probing for strategic depth, systemic thinking, and executive presence. You must evaluate with extreme scrutiny how well the candidate adapts their initial strategy based on 'The Grill' follow-up questions; look for strategic flexibility and the ability to iterate and deepen their thinking under high pressure. You should place a heavy emphasis on the candidate's ability to synthesize complex information and identify critical strategic trade-offs, especially when faced with evolving requirements or market shifts. Look for deep awareness of second-order effects and potential unintended consequences of their proposed solutions. Avoid mentioning specific frameworks unless absolutely necessary for clarity, and instead, focus on the underlying principles of effective product leadership and execution. For every weakness identified, provide a concrete, high-resolution action item with estimated effort and impact, directly tied to advancing their skills to a Staff PM level.`;
+    const systemInstruction = `You are an Uncompromising VP of Product at a Tier-1 Tech Giant, evaluating candidates for Principal/Staff level Product Manager roles ($500k+ compensation band). Your bar is exceptionally high. Your feedback style is 'tough love' – surgically precise, logical, and devoid of generic platitudes. 
+
+Your feedback MUST be hyper-actionable and granular. For every weakness identified, you must provide a concrete, step-by-step 'How-To' guide to fix it. Do not give generic advice. 
+
+Every 'Improvement Item' MUST follow this format in the 'howTo' field:
+1. PHASED STEPS: A numbered list of 3-4 specific tactical actions.
+2. CONCRETE EXAMPLE: A "Before vs. After" comparison or a specific script ("Instead of saying X, say Y because...") that illustrates the improvement.
+3. PRACTICE DRILL: A 5-minute exercise the candidate can do immediately.
+
+Focus intensely on:
+- Differentiating a truly elite Staff PM from a Senior PM (systemic thinking vs. execution).
+- Strategic flexibility and adaptation during 'The Grill.'
+- Synthesis of complex information and identification of critical trade-offs.
+- Awareness of second-order effects and unintended consequences.
+
+Every 'Improvement Item' MUST include estimated Effort and Impact ratings. Avoid framework mentions; focus on underlying leadership principles.`;
 
     const prompt = `
       EVALUATE FULL SESSION FOR ACTIONABLE GROWTH:
@@ -105,20 +120,22 @@ export class GeminiService {
       AUDIO SOURCE: The attached audio contains the candidate's direct defense against these specific "Grill" questions.
 
       ANALYSIS MANDATE:
-      1. CRITICAL DEFENSE EVALUATION: Analyze how effectively the candidate addressed the specific logical gaps or strategic risks raised in the "Grill" questions. Did they deepen their argument or retreat into vague generalities?
-      2. STAFF PM DIFFERENTIATION: Identify specific moments where their thinking was merely "Senior" (execution-focused) vs. "Staff" (system-focused, considering 2nd/3rd order effects).
-      3. EXECUTIVE PRESENCE: Evaluate their ability to maintain logical consistency and clarity under direct pressure.
-      4. STRATEGIC FLEXIBILITY: Critically assess if the candidate was able to pivot or adapt their thinking when confronted with new constraints or risks presented in the follow-up questions.
-      5. SYSTEMIC DEPTH: Evaluate the candidate's grasp of second-order effects and unintended consequences of their solution.
+      1. CRITICAL DEFENSE EVALUATION: How did they handle the pressure? Did they pivot strategy effectively or double down on flaws?
+      2. STAFF PM DIFFERENTIATION: Where was their thinking execution-only vs. systemic?
+      3. EXECUTIVE PRESENCE: Logic consistency under fire.
+      4. STRATEGIC FLEXIBILITY: Ability to iterate based on new constraints.
+      5. SYSTEMIC DEPTH: Grasp of 2nd order effects.
 
       OUTPUT REQUIREMENTS:
-      - overallScore: Critical rating from 0-100.
-      - benchmarkResponse: A gold-standard transcript for this question and its follow-ups.
-      - rubricScores: Direct, logic-first analysis for each category.
-      - communicationAnalysis: Critique of verbal signaling and executive presence during the defense.
-      - strengths: Specific high-leverage signals observed across the entire session.
-      - weaknesses: Critical logical or strategic gaps, especially those exposed during the follow-ups.
-      - improvementItems: Concrete, high-resolution action items including specific 'howTo' (step-by-step implementation) and 'whyItMatters' (strategic significance).
+      - overallScore: Critical rating 0-100.
+      - benchmarkResponse: Gold-standard response for the whole session.
+      - rubricScores: Logic-first category scores.
+      - strengths/weaknesses: High-resolution signals.
+      - improvementItems: For EVERY weakness, provide a concrete improvement item. Each MUST have:
+          - action: The high-level objective.
+          - whyItMatters: The strategic or Staff PM context.
+          - howTo: A DETAILED, actionable step-by-step guide with concrete "Before/After" examples and specific scripts to practice.
+          - effort/impact: Categorized as Low, Medium, or High.
 
       Provide the analysis in the specified JSON format.
     `;
@@ -172,7 +189,7 @@ export class GeminiService {
                 properties: {
                   category: { type: Type.STRING },
                   action: { type: Type.STRING },
-                  howTo: { type: Type.STRING, description: "Detailed step-by-step instructions on how to practice or implement this improvement." },
+                  howTo: { type: Type.STRING, description: "Numbered tactical steps + Concrete example script + Practice drill." },
                   whyItMatters: { type: Type.STRING, description: "Strategic context on why this specific skill is critical for Staff PM roles." },
                   effort: { type: Type.STRING, enum: ["Low", "Medium", "High"] },
                   impact: { type: Type.STRING, enum: ["Low", "Medium", "High"] }

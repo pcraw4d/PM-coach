@@ -383,21 +383,21 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
                     </div>
 
                     {isExpanded && (
-                      <div className="mt-4 pt-4 border-t border-indigo-100 space-y-4 animate-in fade-in slide-in-from-top-2">
+                      <div className="mt-4 pt-4 border-t border-indigo-100 space-y-5 animate-in fade-in slide-in-from-top-2">
                         <div>
                           <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1.5">Strategic Context (The Why)</p>
-                          <p className="text-xs text-slate-600 leading-relaxed italic">
+                          <p className="text-xs text-slate-600 leading-relaxed italic font-medium">
                             {item.whyItMatters}
                           </p>
                         </div>
-                        <div className="bg-white/60 p-4 rounded-xl border border-indigo-100">
-                          <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-2 flex items-center">
-                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-inner">
+                          <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.15em] mb-4 flex items-center">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                             </svg>
-                            High-Resolution How-To
+                            Tactical Implementation Guide
                           </p>
-                          <div className="text-xs text-slate-700 leading-relaxed font-medium space-y-2 whitespace-pre-wrap">
+                          <div className="text-xs text-slate-700 leading-relaxed font-semibold space-y-4 whitespace-pre-wrap prose prose-sm prose-slate max-w-none">
                             {item.howTo}
                           </div>
                         </div>
