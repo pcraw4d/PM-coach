@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [phase, setPhase] = useState<InterviewPhase>('config');
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isMissionsLoading, setIsMissionsLoading] = useState(false);
   const [result, setResult] = useState<InterviewResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [dailyMissions, setDailyMissions] = useState<KnowledgeMission[]>([]);
@@ -50,9 +51,14 @@ const App: React.FC = () => {
   }, [isAuthorized]);
 
   const loadMissions = async () => {
-    const m = await geminiService.discoverMissions();
-    setDailyMissions(m);
-    localStorage.setItem('pm_coach_missions', JSON.stringify(m));
+    setIsMissionsLoading(true);
+    try {
+      const m = await geminiService.discoverMissions();
+      setDailyMissions(m);
+      localStorage.setItem('pm_coach_missions', JSON.stringify(m));
+    } finally {
+      setIsMissionsLoading(false);
+    }
   };
 
   const saveHistory = (newHistory: HistoryItem[]) => {
@@ -146,18 +152,27 @@ const App: React.FC = () => {
             <div className="flex justify-between items-end">
                <h1 className="text-5xl font-black tracking-tighter">Scale up, <span className="text-indigo-600">Product.</span></h1>
             </div>
-            <MissionFeed missions={dailyMissions} isLoading={false} onRefresh={loadMissions} onComplete={handleMissionComplete} />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               <button onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} className="bg-white p-10 rounded-[3.5rem] border-2 border-slate-100 hover:border-indigo-600 transition shadow-sm text-left group">
-                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">💡</div>
-                  <h3 className="text-3xl font-black mb-2">Product Sense</h3>
-                  <p className="text-slate-500 font-semibold">Master design thinking and visionary empathy.</p>
-               </button>
-               <button onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} className="bg-white p-10 rounded-[3.5rem] border-2 border-slate-100 hover:border-emerald-600 transition shadow-sm text-left group">
-                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">📊</div>
-                  <h3 className="text-3xl font-black mb-2">Execution</h3>
-                  <p className="text-slate-500 font-semibold">Crush metrics and root cause analysis.</p>
-               </button>
+            <MissionFeed 
+              missions={dailyMissions} 
+              isLoading={isMissionsLoading} 
+              onRefresh={loadMissions} 
+              onComplete={handleMissionComplete} 
+            />
+            
+            <div className="space-y-6">
+               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Interview Practice</h3>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <button onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} className="bg-white p-10 rounded-[3.5rem] border-2 border-slate-100 hover:border-indigo-600 transition shadow-sm text-left group">
+                     <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">💡</div>
+                     <h3 className="text-3xl font-black mb-2">Product Sense</h3>
+                     <p className="text-slate-500 font-semibold">Master design thinking and visionary empathy.</p>
+                  </button>
+                  <button onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} className="bg-white p-10 rounded-[3.5rem] border-2 border-slate-100 hover:border-emerald-600 transition shadow-sm text-left group">
+                     <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">📊</div>
+                     <h3 className="text-3xl font-black mb-2">Analytical Thinking</h3>
+                     <p className="text-slate-500 font-semibold">Crush metrics and root cause analysis.</p>
+                  </button>
+               </div>
             </div>
           </div>
         )}
