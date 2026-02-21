@@ -23,23 +23,21 @@ const App: React.FC = () => {
   const [result, setResult] = useState<InterviewResult | null>(null);
   const [history, setHistory] = useState<StoredInterview[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Grill states
+  const [initialTranscript, setInitialTranscript] = useState<string>('');
+  const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
 
   // Security & Authorization Check
   useEffect(() => {
     const checkAuth = async () => {
       const savedToken = localStorage.getItem('pm_app_access_token');
-      
       if (!savedToken) {
         setIsAuthLoading(false);
         return;
       }
-
-      // Check Vite Meta
-      // Fix: Cast import.meta to any to resolve TS error for env access
       const matchesViteMeta = savedToken === (import.meta as any).env.VITE_ACCESS_KEY;
       const matchesMeta = savedToken === (import.meta as any).env.ACCESS_KEY;
-
-      // Check Process
       const matchesProcessVite = typeof process !== 'undefined' && savedToken === process.env.VITE_ACCESS_KEY;
       const matchesProcessAccess = typeof process !== 'undefined' && savedToken === process.env.ACCESS_KEY;
       const matchesProcessReact = typeof process !== 'undefined' && savedToken === process.env.REACT_APP_ACCESS_KEY;
@@ -47,17 +45,14 @@ const App: React.FC = () => {
       if (matchesViteMeta || matchesMeta || matchesProcessVite || matchesProcessAccess || matchesProcessReact) {
         setIsAuthorized(true);
       }
-      
       setIsAuthLoading(false);
     };
-    
     checkAuth();
   }, []);
 
   // Initialize single user
   useEffect(() => {
     if (!isAuthorized) return;
-
     const savedUser = localStorage.getItem('pm_coach_personal_user');
     if (savedUser) {
       setUser(JSON.parse(savedUser));
@@ -73,7 +68,6 @@ const App: React.FC = () => {
       setUser(defaultUser);
       localStorage.setItem('pm_coach_personal_user', JSON.stringify(defaultUser));
     }
-
     const savedHistory = localStorage.getItem('pm_history_me');
     if (savedHistory) {
       setHistory(JSON.parse(savedHistory));
@@ -109,11 +103,7 @@ const App: React.FC = () => {
     if (!user) return;
     setIsSyncing(true);
     try {
-      const synced = await syncService.sync({
-        user,
-        history,
-        lastUpdated: Date.now()
-      });
+      const synced = await syncService.sync({ user, history, lastUpdated: Date.now() });
       setUser(synced.user);
       setHistory(synced.history);
       alert("Cloud Sync Successful!");
@@ -145,7 +135,8 @@ const App: React.FC = () => {
     setPhase('question');
   };
 
-  const handleRecordingStop = async (blob: Blob) => {
+  // Step 1: Handle Initial Recording
+  const handleInitialRecordingStop = async (blob: Blob) => {
     if (!currentQuestion || !selectedType || !user) return;
     setIsProcessing(true);
     setPhase('analyzing');
@@ -154,7 +145,43 @@ const App: React.FC = () => {
       reader.readAsDataURL(blob);
       reader.onloadend = async () => {
         const base64 = (reader.result as string).split(',')[1];
-        const feedback = await geminiService.analyzeResponse(selectedType, currentQuestion.text, base64, 'audio/webm');
+        const { transcription, followUpQuestions } = await geminiService.generateFollowUps(
+          selectedType, 
+          currentQuestion.text, 
+          base64, 
+          'audio/webm'
+        );
+        setInitialTranscript(transcription);
+        setFollowUpQuestions(followUpQuestions);
+        setPhase('grilling');
+        setIsProcessing(false);
+      };
+    } catch (err: any) {
+      alert("Initial transcription failed: " + (err.message || "Unknown error"));
+      setPhase('question');
+      setIsProcessing(false);
+    }
+  };
+
+  // Step 2: Handle Follow-up (Grill) Recording
+  const handleGrillRecordingStop = async (blob: Blob) => {
+    if (!currentQuestion || !selectedType || !user || !initialTranscript) return;
+    setIsProcessing(true);
+    setPhase('analyzing');
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64 = (reader.result as string).split(',')[1];
+        const feedback = await geminiService.analyzeFullSession(
+          selectedType,
+          currentQuestion.text,
+          initialTranscript,
+          followUpQuestions,
+          base64,
+          'audio/webm'
+        );
+        
         const newEntry: StoredInterview = {
           id: crypto.randomUUID(),
           timestamp: Date.now(),
@@ -165,11 +192,11 @@ const App: React.FC = () => {
         setHistory(prev => [newEntry, ...prev]);
         setResult(feedback);
         setPhase('result');
+        setIsProcessing(false);
       };
     } catch (err: any) {
-      alert("Analysis failed: " + (err.message || "Unknown error"));
-      setPhase('question');
-    } finally {
+      alert("Final analysis failed: " + (err.message || "Unknown error"));
+      setPhase('grilling');
       setIsProcessing(false);
     }
   };
@@ -179,9 +206,10 @@ const App: React.FC = () => {
     setSelectedType(null);
     setCurrentQuestion(null);
     setResult(null);
+    setInitialTranscript('');
+    setFollowUpQuestions([]);
   };
 
-  // 1. Loading state to prevent "Gate Flicker"
   if (isAuthLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -190,7 +218,6 @@ const App: React.FC = () => {
     );
   }
 
-  // 2. Gatekeeper
   if (!isAuthorized) {
     return <AccessGate onGrantAccess={() => setIsAuthorized(true)} />;
   }
@@ -222,43 +249,26 @@ const App: React.FC = () => {
             {/* Career Progress Dashboard */}
             <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-40"></div>
-              
               <div className="relative z-10 w-32 h-32 rounded-3xl bg-indigo-600 shadow-2xl shadow-indigo-200 flex items-center justify-center transform -rotate-3 transition hover:rotate-0 duration-300">
-                <img 
-                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${user.avatarSeed}`} 
-                  alt="Avatar"
-                  className="w-24 h-24"
-                />
+                <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=${user.avatarSeed}`} alt="Avatar" className="w-24 h-24" />
               </div>
-
               <div className="flex-1 space-y-4 relative z-10 text-center md:text-left">
                 <div>
                   <h2 className="text-3xl font-black text-slate-900 tracking-tight">Level {stats.level} Product Leader</h2>
                   <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em]">{stats.totalXP.toLocaleString()} Total XP Earned</p>
                 </div>
-                
                 <div className="space-y-2">
                   <div className="flex justify-between items-end text-[10px] font-black text-slate-400 uppercase tracking-widest">
                     <span>Progress to Level {stats.level + 1}</span>
                     <span>{Math.round(stats.currentLevelXP)} / 1000 XP</span>
                   </div>
                   <div className="h-4 bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative p-1">
-                    <div 
-                      className="h-full bg-indigo-600 rounded-full transition-all duration-1000 progress-bar-glow" 
-                      style={{ width: `${stats.progress}%` }}
-                    ></div>
+                    <div className="h-full bg-indigo-600 rounded-full transition-all duration-1000 progress-bar-glow" style={{ width: `${stats.progress}%` }}></div>
                   </div>
                 </div>
               </div>
-
               <div className="relative z-10 md:pl-8 md:border-l border-slate-100">
-                <button 
-                  onClick={handleCloudSync}
-                  disabled={isSyncing}
-                  className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${
-                    isSyncing ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-100 hover:border-indigo-600 hover:shadow-lg'
-                  }`}
-                >
+                <button onClick={handleCloudSync} disabled={isSyncing} className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${isSyncing ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-100 hover:border-indigo-600 hover:shadow-lg'}`}>
                   <svg className={`w-8 h-8 mb-2 ${isSyncing ? 'animate-spin text-slate-400' : 'text-indigo-600 group-hover:scale-110 transition-transform'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
@@ -285,7 +295,6 @@ const App: React.FC = () => {
                 <h3 className="text-2xl font-black mb-2 text-slate-900">Product Sense</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">Design thinking, user personas, and visionary roadmapping sessions.</p>
               </button>
-
               <button onClick={() => startInterview(InterviewType.ANALYTICAL_THINKING)} className="group bg-white p-8 rounded-[2.5rem] border border-slate-200 hover:border-emerald-500 transition-all hover:shadow-2xl hover:-translate-y-2 text-left relative overflow-hidden">
                 <div className="absolute -right-8 -bottom-8 text-8xl opacity-5 group-hover:opacity-10 transition-opacity">📊</div>
                 <div className="bg-emerald-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
@@ -296,7 +305,6 @@ const App: React.FC = () => {
                 <h3 className="text-2xl font-black mb-2 text-slate-900">Execution</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">Metrics, root cause analysis, and data-driven prioritization missions.</p>
               </button>
-
               <button onClick={() => setPhase('custom-input')} className="group bg-white p-8 rounded-[2.5rem] border border-slate-200 hover:border-amber-500 transition-all hover:shadow-2xl hover:-translate-y-2 text-left relative overflow-hidden">
                 <div className="absolute -right-8 -bottom-8 text-8xl opacity-5 group-hover:opacity-10 transition-opacity">🖋️</div>
                 <div className="bg-amber-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-amber-600 group-hover:text-white transition-colors">
@@ -316,7 +324,31 @@ const App: React.FC = () => {
         {(phase === 'question' || phase === 'analyzing') && currentQuestion && (
           <div className="max-w-2xl mx-auto space-y-12 py-10">
             <h2 className="text-3xl font-black text-center text-slate-900">{currentQuestion.text}</h2>
-            <Recorder onStop={handleRecordingStop} onCancel={() => setPhase('config')} isProcessing={isProcessing} />
+            <Recorder onStop={handleInitialRecordingStop} onCancel={() => setPhase('config')} isProcessing={isProcessing} />
+          </div>
+        )}
+
+        {phase === 'grilling' && followUpQuestions.length > 0 && (
+          <div className="max-w-2xl mx-auto space-y-12 py-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="text-center space-y-4">
+              <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest inline-block">The Grill</span>
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Defend Your Position</h2>
+              <p className="text-slate-500 font-medium">The VP has concerns about your approach. Answer these specifically.</p>
+            </div>
+            
+            <div className="bg-slate-900 text-white p-8 rounded-[2rem] border border-slate-800 shadow-2xl space-y-6">
+              {followUpQuestions.map((q, idx) => (
+                <div key={idx} className="flex space-x-4 group">
+                  <span className="text-indigo-500 font-black text-lg">{idx + 1}.</span>
+                  <p className="text-lg font-bold leading-relaxed text-slate-200">{q}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="text-center py-4">
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-6">Record your defense (1-2 mins recommended)</p>
+              <Recorder onStop={handleGrillRecordingStop} onCancel={reset} isProcessing={isProcessing} />
+            </div>
           </div>
         )}
 

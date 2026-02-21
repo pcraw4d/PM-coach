@@ -36,6 +36,8 @@ export interface Resource {
 export interface ImprovementItem {
   category: string;
   action: string;
+  howTo: string;
+  whyItMatters: string;
   effort: 'Low' | 'Medium' | 'High';
   impact: 'Low' | 'Medium' | 'High';
 }
@@ -51,12 +53,15 @@ export interface CommunicationAnalysis {
 export interface InterviewResult {
   overallScore: number;
   transcription: string;
+  followUpQuestions: string[];
+  followUpTranscription: string;
   rubricScores: FeedbackScore[];
   strengths: string[];
   weaknesses: string[];
   improvementItems: ImprovementItem[];
   recommendedResources: Resource[];
   communicationAnalysis: CommunicationAnalysis;
+  benchmarkResponse: string;
 }
 
 export interface StoredInterview {
@@ -67,4 +72,4 @@ export interface StoredInterview {
   result: InterviewResult;
 }
 
-export type InterviewPhase = 'auth' | 'onboarding' | 'config' | 'question' | 'recording' | 'analyzing' | 'result' | 'history' | 'settings' | 'custom-input';
+export type InterviewPhase = 'auth' | 'onboarding' | 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input';

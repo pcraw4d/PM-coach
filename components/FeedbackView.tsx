@@ -44,7 +44,6 @@ const CommunicationEvaluation: React.FC<{ analysis: CommunicationAnalysis }> = (
     'Needs Work': 'bg-rose-500 text-white'
   };
 
-  // Ensure communication scores are clamped between 0 and 10 for UI consistency
   const confidence = Math.min(10, Math.max(0, analysis.confidenceScore));
   const clarity = Math.min(10, Math.max(0, analysis.clarityScore));
 
@@ -99,13 +98,15 @@ const CommunicationEvaluation: React.FC<{ analysis: CommunicationAnalysis }> = (
 export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isProductSense }) => {
   const [activeCategory, setActiveCategory] = useState<string | 'All'>('All');
   const [sortBy, setSortBy] = useState<'impact' | 'effort'>('impact');
+  const [showBenchmark, setShowBenchmark] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<number[]>([]);
 
-  // We map scores carefully. If the AI returns a score like 20 (out of 100), 
-  // we treat it as 2/10 for the UI if it exceeds 10, or just clamp it.
-  // Ideally, the updated system prompt fixes this at the source.
+  const toggleItem = (idx: number) => {
+    setExpandedItems(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
+  };
+
   const radarData = result.rubricScores.map(rs => {
     let displayScore = rs.score;
-    // Safety check: If model returns a percentage instead of a 0-10 value
     if (displayScore > 10) displayScore = displayScore / 10;
     displayScore = Math.min(10, Math.max(0, displayScore));
     
@@ -138,7 +139,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
   };
 
   const filteredAndSortedItems = useMemo(() => {
-    let items = [...result.improvementItems];
+    let items = result.improvementItems.map((item, originalIndex) => ({ ...item, originalIndex }));
     if (activeCategory !== 'All') {
       items = items.filter(item => item.category === activeCategory);
     }
@@ -153,23 +154,23 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
   }, [result.improvementItems, activeCategory, sortBy]);
 
   const methodologyName = isProductSense 
-    ? "Industry Standard Product Sense Guide" 
-    : "Industry Standard Execution Guide";
+    ? "Principal Strategic Principles" 
+    : "Executive Execution Standards";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="bg-gradient-to-r from-indigo-600 to-violet-600 p-8 rounded-3xl text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-6">
-        <div className="space-y-2 text-center md:text-left">
-          <h2 className="text-3xl font-bold">Analysis Complete</h2>
-          <p className="text-indigo-100 max-w-md">
-            Your response has been evaluated against the 
-            <span className="font-bold underline decoration-indigo-300 ml-1">{methodologyName}</span>.
+      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 p-8 rounded-3xl text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] -mr-32 -mt-32"></div>
+        <div className="space-y-2 text-center md:text-left relative z-10">
+          <h2 className="text-3xl font-black tracking-tight">Executive Evaluation</h2>
+          <p className="text-indigo-200/70 text-sm max-w-md">
+            Measured against <span className="text-indigo-300 font-bold">{methodologyName}</span> for a Staff PM bar.
           </p>
         </div>
-        <div className="flex items-center justify-center w-28 h-28 rounded-full bg-white/10 backdrop-blur-md border-4 border-white/20">
+        <div className="flex items-center justify-center w-28 h-28 rounded-3xl bg-white/5 backdrop-blur-md border border-white/10 relative z-10">
           <div className="text-center">
-            <span className="block text-3xl font-black leading-none">{Math.min(100, Math.max(0, result.overallScore))}</span>
-            <span className="text-[10px] uppercase font-bold tracking-widest opacity-70">Overall</span>
+            <span className="block text-4xl font-black leading-none">{Math.min(100, Math.max(0, result.overallScore))}</span>
+            <span className="text-[10px] uppercase font-bold tracking-widest opacity-50 mt-1 block">Rating</span>
           </div>
         </div>
       </div>
@@ -178,34 +179,42 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
         <div className="flex-1 space-y-6">
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
             <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between">
-              Performance Breakdown
-              <span className="text-xs font-normal text-slate-400">Scale: 1-10</span>
+              Core Principles Audit
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded">Score /10</span>
             </h3>
 
             <div className="h-[280px] w-full mb-6">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
                   <PolarGrid stroke="#e2e8f0" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: '#64748b' }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 10]} />
-                  <Radar name="Performance" dataKey="A" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.4} />
+                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} />
+                  <PolarRadiusAxis angle={30} domain={[0, 10]} axisLine={false} tick={false} />
+                  <Radar name="Performance" dataKey="A" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.2} strokeWidth={2} />
                 </RadarChart>
               </ResponsiveContainer>
             </div>
             
-            <div className="space-y-4">
+            <div className="space-y-6">
                {result.rubricScores.map((score, idx) => {
                  let displayScore = score.score;
                  if (displayScore > 10) displayScore = displayScore / 10;
                  displayScore = Math.min(10, Math.max(0, displayScore));
 
                  return (
-                  <div key={idx} className="space-y-1 border-l-2 border-indigo-100 pl-4">
-                    <div className="flex justify-between text-sm">
-                      <span className="font-semibold text-slate-700">{score.category}</span>
-                      <span className="font-bold text-indigo-600">{displayScore}/10</span>
+                  <div key={idx} className="space-y-2">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-bold text-slate-800 tracking-tight">{score.category}</span>
+                      <span className={`font-black text-xs px-2 py-0.5 rounded ${displayScore >= 8 ? 'bg-emerald-50 text-emerald-600' : displayScore >= 5 ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
+                        {displayScore}/10
+                      </span>
                     </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">{score.reasoning}</p>
+                    <p className="text-xs text-slate-500 leading-relaxed font-medium">{score.reasoning}</p>
+                    <div className="w-full bg-slate-50 h-1 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-1000 ${displayScore >= 8 ? 'bg-emerald-500' : displayScore >= 5 ? 'bg-amber-500' : 'bg-rose-500'}`} 
+                        style={{ width: `${displayScore * 10}%` }}
+                      ></div>
+                    </div>
                   </div>
                  )
                })}
@@ -213,20 +222,76 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Key Strengths
-            </h3>
-            <ul className="space-y-2">
-              {result.strengths.map((s, i) => (
-                <li key={i} className="text-slate-600 flex items-start text-sm">
-                  <span className="text-indigo-500 mr-2">•</span>
-                  {s}
-                </li>
-              ))}
-            </ul>
+            <h3 className="text-lg font-bold text-slate-900 mb-6">Strategic Post-Mortem</h3>
+            <div className="space-y-6">
+              <div>
+                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-3">Strong Signals</p>
+                <div className="space-y-2">
+                  {result.strengths.map((s, i) => (
+                    <div key={i} className="flex items-start space-x-3 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
+                      <svg className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-xs font-bold text-emerald-800 leading-relaxed">{s}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-3">Critical Gaps</p>
+                <div className="space-y-2">
+                  {result.weaknesses.map((w, i) => (
+                    <div key={i} className="flex items-start space-x-3 p-3 bg-rose-50/50 rounded-xl border border-rose-100">
+                      <svg className="w-4 h-4 text-rose-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <p className="text-xs font-bold text-rose-800 leading-relaxed">{w}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 p-8 rounded-2xl shadow-xl border border-slate-800 text-white relative overflow-hidden group">
+            <div className="absolute -top-12 -right-12 w-32 h-32 bg-indigo-600/20 rounded-full blur-2xl group-hover:bg-indigo-600/30 transition-all"></div>
+            <div className="relative z-10 flex flex-col items-center text-center space-y-4">
+              <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center mb-2">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-black tracking-tight">The Staff Benchmark</h3>
+              <p className="text-slate-400 text-sm font-medium px-4">
+                Reveal how an elite $500k/year Principal PM would tackle this exact problem using first principles.
+              </p>
+              <button 
+                onClick={() => setShowBenchmark(!showBenchmark)}
+                className="w-full mt-4 bg-white hover:bg-indigo-50 text-slate-900 font-black py-4 rounded-xl shadow-lg transition transform active:scale-95 uppercase tracking-widest text-[10px]"
+              >
+                {showBenchmark ? 'Hide Benchmark' : 'Reveal Gold Standard Response'}
+              </button>
+            </div>
+
+            {showBenchmark && (
+              <div className="mt-8 pt-8 border-t border-slate-800 animate-in fade-in slide-in-from-top-4 duration-500">
+                <div className="flex items-center space-x-2 mb-4">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Ideal Executive Transcript</span>
+                </div>
+                <div className="prose prose-invert prose-sm max-w-none">
+                  <div className="text-slate-300 leading-relaxed font-medium space-y-4 whitespace-pre-wrap">
+                    {result.benchmarkResponse}
+                  </div>
+                </div>
+                <div className="mt-8 p-4 bg-indigo-950/40 border border-indigo-500/20 rounded-xl">
+                  <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest mb-1">Coach's Note</p>
+                  <p className="text-xs text-indigo-200/70 font-medium leading-relaxed">
+                    Notice the lack of "framework filler" and the immediate focus on high-leverage strategic moats. This is what executive presence sounds like.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -236,11 +301,11 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <div className="flex flex-col space-y-4 mb-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900 flex items-center">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center">
                   <svg className="w-5 h-5 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                   </svg>
-                  Actionable Growth Plan
+                  Staff-Level Delta
                 </h3>
               </div>
               
@@ -261,7 +326,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
               </div>
 
               <div className="flex items-center space-x-3 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] border-t border-slate-50 pt-4">
-                <span>Priority:</span>
+                <span>View Mode:</span>
                 <div className="flex bg-slate-50 p-1 rounded-lg">
                   <button
                     onClick={() => setSortBy('impact')}
@@ -280,31 +345,70 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
             </div>
 
             <div className="space-y-4 mb-8">
-              {filteredAndSortedItems.map((item, i) => (
-                <div key={i} className="group p-5 rounded-2xl border border-slate-100 bg-white hover:border-indigo-200 hover:shadow-lg transition-all duration-300">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <div className={`w-2 h-2 rounded-full ${
-                        item.category === 'Structuring' ? 'bg-indigo-500' : 
-                        item.category === 'Content' ? 'bg-emerald-500' : 'bg-amber-500'
-                      }`}></div>
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                        {item.category}
-                      </span>
+              {filteredAndSortedItems.map((item, i) => {
+                const isExpanded = expandedItems.includes(item.originalIndex);
+                return (
+                  <div 
+                    key={i} 
+                    className={`group p-5 rounded-2xl border transition-all duration-300 cursor-pointer ${
+                      isExpanded 
+                        ? 'border-indigo-400 bg-indigo-50/30 shadow-md ring-1 ring-indigo-100' 
+                        : 'border-slate-100 bg-white hover:border-indigo-200 hover:shadow-lg'
+                    }`}
+                    onClick={() => toggleItem(item.originalIndex)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          item.category === 'Structuring' ? 'bg-indigo-500' : 
+                          item.category === 'Content' ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}></div>
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                          {item.category}
+                        </span>
+                      </div>
+                      <div className="flex space-x-1.5">
+                        <EffortBadge level={item.effort} />
+                        <ImpactBadge level={item.impact} />
+                      </div>
                     </div>
-                    <div className="flex space-x-1.5">
-                      <EffortBadge level={item.effort} />
-                      <ImpactBadge level={item.impact} />
+                    
+                    <div className="flex items-start justify-between gap-4">
+                       <p className={`text-sm text-slate-800 font-bold leading-relaxed ${isExpanded ? '' : 'line-clamp-2'}`}>
+                        {item.action}
+                      </p>
+                      <svg className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
+
+                    {isExpanded && (
+                      <div className="mt-4 pt-4 border-t border-indigo-100 space-y-4 animate-in fade-in slide-in-from-top-2">
+                        <div>
+                          <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1.5">Strategic Context (The Why)</p>
+                          <p className="text-xs text-slate-600 leading-relaxed italic">
+                            {item.whyItMatters}
+                          </p>
+                        </div>
+                        <div className="bg-white/60 p-4 rounded-xl border border-indigo-100">
+                          <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mb-2 flex items-center">
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            High-Resolution How-To
+                          </p>
+                          <div className="text-xs text-slate-700 leading-relaxed font-medium space-y-2 whitespace-pre-wrap">
+                            {item.howTo}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-sm text-slate-800 font-semibold leading-relaxed">
-                    {item.action}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            <h3 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">Learning Paths</h3>
+            <h3 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-[0.2em]">Curated Deep Dives</h3>
             <div className="grid gap-3">
               {result.recommendedResources.map((res, i) => (
                 <a
@@ -336,9 +440,9 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isP
       <div className="flex justify-center pt-8">
         <button
           onClick={onReset}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 px-14 rounded-3xl shadow-2xl transition transform hover:-translate-y-1 active:scale-95 text-lg uppercase tracking-widest"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 px-14 rounded-2xl shadow-2xl shadow-indigo-200 transition transform hover:-translate-y-1 active:scale-95 text-lg uppercase tracking-widest"
         >
-          Practice Next Question
+          Master Next Case
         </button>
       </div>
     </div>
