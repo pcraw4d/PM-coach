@@ -98,3 +98,11 @@ export interface StoredMission {
 export type HistoryItem = StoredInterview | StoredMission;
 
 export type InterviewPhase = 'auth' | 'onboarding' | 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input';
+
+export interface SyncData {
+  user: User;
+  history: HistoryItem[];
+  missions?: KnowledgeMission[];
+  missionsTimestamp?: number;
+  lastUpdated: number;
+}

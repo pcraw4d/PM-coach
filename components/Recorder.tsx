@@ -1,13 +1,13 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 
 interface RecorderProps {
   onStop: (blob: Blob) => void;
   onCancel: () => void;
   isProcessing: boolean;
+  prompt?: string | string[];
 }
 
-export const Recorder: React.FC<RecorderProps> = ({ onStop, onCancel, isProcessing }) => {
+export const Recorder: React.FC<RecorderProps> = ({ onStop, onCancel, isProcessing, prompt }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -101,8 +101,8 @@ export const Recorder: React.FC<RecorderProps> = ({ onStop, onCancel, isProcessi
             ctx.fillStyle = gradient;
             const radius = Math.max(1, barWidth / 2);
             ctx.beginPath();
-            if (ctx.roundRect) {
-                ctx.roundRect(x, centerY - barHeight / 2, barWidth, barHeight, radius);
+            if ((ctx as any).roundRect) {
+                (ctx as any).roundRect(x, centerY - barHeight / 2, barWidth, barHeight, radius);
             } else {
                 ctx.rect(x, centerY - barHeight / 2, barWidth, barHeight);
             }
@@ -254,7 +254,31 @@ export const Recorder: React.FC<RecorderProps> = ({ onStop, onCancel, isProcessi
   }, []);
 
   return (
-    <div className="flex flex-col items-center space-y-12 py-8">
+    <div className="flex flex-col items-center space-y-12 py-8 w-full max-w-4xl mx-auto">
+      {/* PROMPT DISPLAY */}
+      {prompt && (
+        <div className="w-full px-6 py-8 bg-white/60 backdrop-blur-md border border-slate-200 rounded-[2.5rem] shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
+          <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-4 text-center">Reference Prompt</h3>
+          <div className={`max-w-3xl mx-auto px-4 ${Array.isArray(prompt) && prompt.length > 1 ? 'text-left' : 'text-center'}`}>
+            {Array.isArray(prompt) ? (
+               prompt.length > 1 ? (
+                 <ul className="list-disc list-outside pl-5 space-y-4">
+                   {prompt.map((q, i) => (
+                     <li key={i} className="text-lg font-bold text-slate-800 leading-relaxed tracking-tight">
+                        {q}
+                     </li>
+                   ))}
+                 </ul>
+               ) : (
+                 <p className="text-xl font-bold text-slate-800 leading-snug">{prompt[0]}</p>
+               )
+            ) : (
+               <p className="text-xl font-bold text-slate-800 leading-snug">{prompt}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col items-center space-y-6 w-full pointer-events-none select-none">
         <div className="h-10 flex flex-col items-center justify-end">
           {isRecording && (

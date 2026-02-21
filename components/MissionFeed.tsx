@@ -5,17 +5,18 @@ interface MissionFeedProps {
   missions: KnowledgeMission[];
   onComplete: (id: string) => void;
   isLoading: boolean;
+  isRevalidating?: boolean;
   onRefresh: () => void;
 }
 
-export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, isLoading, onRefresh }) => {
+export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, isLoading, isRevalidating, onRefresh }) => {
   if (isLoading) {
     return (
       <div className="space-y-4">
         <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Daily Growth Missions</h3>
-        <div className="flex space-x-4 overflow-hidden py-2">
+        <div className="flex space-x-6 overflow-hidden py-2">
           {[1, 2, 3].map(i => (
-            <div key={i} className="min-w-[280px] h-[180px] bg-slate-100 rounded-[2rem] animate-pulse"></div>
+            <div key={i} className="min-w-[300px] h-[200px] bg-slate-100 rounded-[2.5rem] animate-pulse"></div>
           ))}
         </div>
       </div>
@@ -25,48 +26,74 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Daily Growth</h3>
+        <div className="flex items-center space-x-3">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Daily Growth</h3>
+          {isRevalidating && (
+            <div className="flex items-center space-x-1.5 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100 animate-in fade-in zoom-in duration-300">
+              <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
+              <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Syncing Latest...</span>
+            </div>
+          )}
+        </div>
         <button 
           onClick={onRefresh}
-          className="text-[10px] font-bold text-slate-400 hover:text-indigo-600 uppercase tracking-widest flex items-center space-x-1"
+          disabled={isRevalidating}
+          className="text-[10px] font-bold text-slate-400 hover:text-indigo-600 uppercase tracking-widest flex items-center space-x-1 disabled:opacity-50 transition-colors"
         >
           <span>Refresh</span>
         </button>
       </div>
 
-      <div className="flex space-x-6 overflow-x-auto pb-6 -mx-4 px-4 no-scrollbar">
+      <div className="flex space-x-6 overflow-x-auto pb-6 -mx-4 px-4 no-scrollbar scroll-smooth">
         {missions.map((mission) => (
           <div 
             key={mission.id}
-            className={`min-w-[300px] max-w-[300px] flex flex-col justify-between p-6 rounded-[2rem] border transition-all ${
+            className={`min-w-[300px] max-w-[300px] flex flex-col justify-between p-7 rounded-[2.5rem] border transition-all duration-300 ${
               mission.isCompleted 
-                ? 'bg-slate-50 opacity-60' 
-                : 'bg-white border-slate-200 hover:border-indigo-400'
+                ? 'bg-slate-50 border-transparent opacity-60 grayscale' 
+                : 'bg-white border-slate-100 hover:border-indigo-400 shadow-sm hover:shadow-xl hover:-translate-y-1'
             }`}
           >
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{mission.source}</p>
-              <h4 className="text-sm font-black text-slate-900 line-clamp-2">{mission.title}</h4>
-              <p className="text-xs text-slate-500 mt-2 line-clamp-2">{mission.summary}</p>
+            <div className="space-y-3">
+              <div className="flex justify-between items-start">
+                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md">{mission.source}</p>
+                <span className="text-[9px] font-black text-slate-400">+{mission.xpAwarded} XP</span>
+              </div>
+              <h4 className="text-sm font-black text-slate-900 leading-snug line-clamp-2">{mission.title}</h4>
+              <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-2">{mission.summary}</p>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-slate-50">
+            <div className="mt-6 pt-5 border-t border-slate-50">
               {mission.isCompleted ? (
-                <span className="text-emerald-600 text-[10px] font-black uppercase">Completed</span>
+                <div className="flex items-center justify-center space-x-2 py-3">
+                  <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-emerald-600 text-[10px] font-black uppercase tracking-widest">Knowledge Unlocked</span>
+                </div>
               ) : (
                 <a 
                   href={mission.url} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  onClick={() => setTimeout(() => onComplete(mission.id), 2000)}
-                  className="block w-full bg-slate-900 text-white text-center py-3 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                  onClick={() => {
+                    // Start local completion timer
+                    setTimeout(() => onComplete(mission.id), 1000);
+                  }}
+                  className="block w-full bg-slate-900 hover:bg-black text-white text-center py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95"
                 >
-                  Start Mission
+                  Deep Dive
                 </a>
               )}
             </div>
           </div>
         ))}
+        {missions.length === 0 && !isLoading && (
+          <div className="w-full flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-200 rounded-[2.5rem] bg-slate-50">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No missions discovered for today.</p>
+            <button onClick={onRefresh} className="mt-2 text-indigo-600 font-black text-[10px] uppercase">Try Again</button>
+          </div>
+        )}
       </div>
     </div>
   );
