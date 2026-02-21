@@ -1,1 +1,3 @@
-// This file has been removed. Logic is consolidated in components/AccessGate.tsx.
+import { AccessGate } from './components/AccessGate.tsx';
+export { AccessGate };
+export default AccessGate;

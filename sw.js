@@ -1,5 +1,5 @@
 // Simple service worker that prioritizes network to avoid stale module issues in preview
-const CACHE_NAME = 'pm-coach-ai-v4';
+const CACHE_NAME = 'pm-coach-ai-v5';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
