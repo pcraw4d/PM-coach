@@ -1,4 +1,3 @@
-
 export enum InterviewType {
   PRODUCT_SENSE = 'PRODUCT_SENSE',
   ANALYTICAL_THINKING = 'ANALYTICAL_THINKING'
@@ -33,6 +32,23 @@ export interface Resource {
   type: 'reading' | 'video';
 }
 
+export interface KnowledgeMission {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  type: string;
+  summary: string;
+  xpAwarded: number;
+  isCompleted?: boolean;
+}
+
+export interface SyncData {
+  lastUpdated: number;
+  history: HistoryItem[];
+  missions?: KnowledgeMission[];
+}
+
 export interface ImprovementItem {
   category: string;
   action: string;
@@ -50,11 +66,35 @@ export interface CommunicationAnalysis {
   summary: string;
 }
 
+export interface TranscriptAnnotation {
+  text: string;
+  type: 'strength' | 'weakness' | 'qualifier' | 'neutral';
+  feedback?: string;
+}
+
+export interface GoldenPathStep {
+  title: string;
+  content: string;
+  why: string;
+  strategicTradeOffs: string; // Added: Explains why alternatives were rejected
+}
+
 export interface InterviewResult {
   overallScore: number;
+  visionScore: number; 
+  defenseScore: number; 
   transcription: string;
-  followUpQuestions: string[];
   followUpTranscription: string;
+  followUpQuestions: string[];
+  
+  userLogicPath: string; 
+  defensivePivotScore: number; 
+  defensivePivotAnalysis: string; 
+  
+  annotatedVision: TranscriptAnnotation[];
+  annotatedDefense: TranscriptAnnotation[];
+  goldenPath: GoldenPathStep[];
+  
   rubricScores: FeedbackScore[];
   strengths: string[];
   weaknesses: string[];
@@ -64,45 +104,15 @@ export interface InterviewResult {
   benchmarkResponse: string;
 }
 
-export interface KnowledgeMission {
+export interface HistoryItem {
   id: string;
-  title: string;
-  source: string;
-  url: string;
-  type: 'READING' | 'PODCAST' | 'VIDEO';
-  summary: string;
-  xpAwarded: number;
-  isCompleted?: boolean;
-}
-
-export interface StoredInterview {
-  id: string;
-  activityType: 'INTERVIEW';
+  activityType: 'INTERVIEW' | 'MISSION';
   timestamp: number;
-  questionTitle: string;
-  type: InterviewType;
-  result: InterviewResult;
+  questionTitle?: string;
+  type?: InterviewType;
+  result?: InterviewResult;
+  title?: string;
+  xpAwarded?: number;
 }
 
-export interface StoredMission {
-  id: string;
-  activityType: 'MISSION';
-  timestamp: number;
-  title: string;
-  missionType: 'READING' | 'PODCAST' | 'VIDEO';
-  url: string;
-  source: string;
-  xpAwarded: number;
-}
-
-export type HistoryItem = StoredInterview | StoredMission;
-
-export type InterviewPhase = 'auth' | 'onboarding' | 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input';
-
-export interface SyncData {
-  user: User;
-  history: HistoryItem[];
-  missions?: KnowledgeMission[];
-  missionsTimestamp?: number;
-  lastUpdated: number;
-}
+export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input' | 'practice-delta';

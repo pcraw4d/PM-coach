@@ -1,278 +1,292 @@
 import React, { useState, useMemo } from 'react';
-import { InterviewResult, ImprovementItem, CommunicationAnalysis } from '../types.ts';
+import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep } from '../types.ts';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 
 interface FeedbackViewProps {
   result: InterviewResult;
   onReset: () => void;
+  onPracticeDelta: (item: ImprovementItem) => void;
   isProductSense: boolean;
 }
 
-const EffortBadge: React.FC<{ level: string }> = ({ level }) => {
-  const colors = {
-    Low: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-    Medium: 'bg-amber-100 text-amber-700 border-amber-200',
-    High: 'bg-rose-100 text-rose-700 border-rose-200',
-  };
-  const colorClass = colors[level as keyof typeof colors] || colors.Medium;
-  return (
-    <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${colorClass}`}>
-      {level} Effort
-    </span>
-  );
-};
-
 const ImpactBadge: React.FC<{ level: string }> = ({ level }) => {
-  const colors = {
-    Low: 'bg-slate-100 text-slate-600 border-slate-200',
-    Medium: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-    High: 'bg-indigo-600 text-white border-indigo-700',
-  };
+  const colors = { Low: 'bg-slate-100 text-slate-600 border-slate-200', Medium: 'bg-indigo-100 text-indigo-700 border-indigo-200', High: 'bg-indigo-600 text-white border-indigo-700' };
   const colorClass = colors[level as keyof typeof colors] || colors.Medium;
+  return <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${colorClass}`}>{level} Impact</span>;
+};
+
+const AnnotationSpan: React.FC<{ annotation: TranscriptAnnotation }> = ({ annotation }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  
+  const styles = { 
+    strength: 'bg-emerald-100/50 border-b-2 border-emerald-500 text-emerald-900 cursor-help', 
+    weakness: 'bg-rose-100/50 border-b-2 border-rose-500 text-rose-900 cursor-help', 
+    qualifier: 'bg-amber-100/50 border-b-2 border-amber-500 text-amber-900 cursor-help', 
+    neutral: 'text-slate-700' 
+  };
+
+  if (annotation.type === 'neutral') return <span>{annotation.text} </span>;
+
+  const rewrite = annotation.feedback?.split('REWRITE:')[1];
+  const feedback = annotation.feedback?.split('REWRITE:')[0];
+
   return (
-    <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${colorClass}`}>
-      {level} Impact
+    <span 
+      className={`relative inline-block px-0.5 transition-all mx-0.5 ${styles[annotation.type]}`} 
+      onMouseEnter={() => setShowTooltip(true)} 
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      {annotation.text}
+      {showTooltip && (
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-80 p-4 bg-slate-900 text-white text-[11px] rounded-2xl shadow-2xl z-50 font-medium leading-relaxed animate-in fade-in zoom-in-95">
+          <span className="block font-black text-[9px] tracking-[0.2em] text-indigo-400 mb-2 uppercase">{annotation.type} Audit</span>
+          {feedback}
+          {rewrite && (
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <span className="block text-[8px] font-black text-emerald-400 uppercase tracking-widest mb-1">Staff-Level Alternative</span>
+              <p className="italic text-slate-300">"{rewrite.trim()}"</p>
+            </div>
+          )}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-900"></span>
+        </span>
+      )}
     </span>
   );
 };
 
-const CommunicationEvaluation: React.FC<{ analysis: CommunicationAnalysis }> = ({ analysis }) => {
-  const assessmentColors = {
-    'Strong': 'bg-emerald-500 text-white',
-    'Average': 'bg-amber-500 text-white',
-    'Needs Work': 'bg-rose-500 text-white'
-  };
-
-  const confidence = Math.min(10, Math.max(0, analysis.confidenceScore));
-  const clarity = Math.min(10, Math.max(0, analysis.clarityScore));
+const BenchmarkScript: React.FC<{ text: string }> = ({ text }) => {
+  const parts = useMemo(() => {
+    const lines = text.split(/(?=\[.*?\]:)/g);
+    return lines.map(line => {
+      const match = line.match(/\[(.*?)\]:\s*(.*)/s);
+      if (match) return { speaker: match[1], content: match[2] };
+      return { speaker: null, content: line };
+    });
+  }, [text]);
 
   return (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 overflow-hidden relative">
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900">Communication Quality</h3>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold mt-1">Tone & Soft Skills</p>
+    <div className="space-y-6 max-h-[600px] overflow-y-auto pr-4 no-scrollbar">
+      {parts.map((p, i) => (
+        <div key={i} className={`p-6 rounded-3xl ${p.speaker?.includes('Commentary') ? 'bg-indigo-500/10 border border-indigo-500/20' : 'bg-white/5 border border-white/10'}`}>
+          {p.speaker && (
+            <span className={`text-[9px] font-black uppercase tracking-widest mb-3 block ${p.speaker?.includes('Commentary') ? 'text-indigo-400' : 'text-slate-400'}`}>
+              {p.speaker}
+            </span>
+          )}
+          <p className={`text-sm leading-relaxed ${p.speaker?.includes('Commentary') ? 'text-slate-400 italic font-medium' : 'text-slate-200 font-bold'}`}>
+            {p.content}
+          </p>
         </div>
-        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${assessmentColors[analysis.overallAssessment] || assessmentColors.Average}`}>
-          {analysis.overallAssessment}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Confidence</p>
-          <div className="flex items-end gap-1">
-            <span className="text-2xl font-bold text-slate-800 leading-none">{confidence}</span>
-            <span className="text-xs text-slate-400 font-medium mb-0.5">/10</span>
-          </div>
-          <div className="w-full bg-slate-200 h-1 rounded-full mt-2">
-            <div className="bg-indigo-500 h-1 rounded-full" style={{ width: `${confidence * 10}%` }}></div>
-          </div>
-        </div>
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Clarity</p>
-          <div className="flex items-end gap-1">
-            <span className="text-2xl font-bold text-slate-800 leading-none">{clarity}</span>
-            <span className="text-xs text-slate-400 font-medium mb-0.5">/10</span>
-          </div>
-          <div className="w-full bg-slate-200 h-1 rounded-full mt-2">
-            <div className="bg-emerald-500 h-1 rounded-full" style={{ width: `${clarity * 10}%` }}></div>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center space-x-2 text-sm">
-          <span className="text-slate-400 font-bold uppercase text-[9px]">Tone:</span>
-          <span className="text-slate-700 font-semibold px-2 py-0.5 bg-slate-100 rounded-md">{analysis.tone}</span>
-        </div>
-        <p className="text-sm text-slate-600 leading-relaxed italic">
-          "{analysis.summary}"
-        </p>
-      </div>
+      ))}
     </div>
   );
 };
 
-export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, isProductSense }) => {
-  const [activeCategory, setActiveCategory] = useState<string | 'All'>('All');
-  const [sortBy, setSortBy] = useState<'impact' | 'effort'>('impact');
-  const [showBenchmark, setShowBenchmark] = useState(false);
-  const [expandedItems, setExpandedItems] = useState<number[]>([]);
+const HowToRenderer: React.FC<{ text: string }> = ({ text }) => {
+  // Enhanced renderer to highlight comparisons
+  const lines = text.split('\n');
+  return (
+    <div className="space-y-4">
+      {lines.map((line, idx) => {
+        if (!line.trim()) return null;
+        
+        // Check for PHRASING comparison
+        if (line.includes('PHRASING:') || (line.includes('Instead of') && line.includes('say'))) {
+          const parts = line.split(/(Instead of|say)/gi);
+          return (
+            <div key={idx} className="bg-white/40 p-4 rounded-2xl border border-indigo-100 mt-2">
+              <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-2">Staff Phrasing Audit</p>
+              <div className="flex flex-col space-y-2">
+                <div className="flex items-start space-x-2">
+                  <span className="text-rose-500 font-bold text-[10px] mt-0.5 whitespace-nowrap">Instead of:</span>
+                  <span className="text-slate-400 text-[11px] font-medium line-through decoration-rose-500/20 italic">{line.split(/Instead of|say/i)[1]?.trim() || line}</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <span className="text-emerald-600 font-bold text-[10px] mt-0.5 whitespace-nowrap">Staff Path:</span>
+                  <span className="text-indigo-700 text-[11px] font-black leading-relaxed">{line.split(/say/i)[1]?.trim() || 'Speak with more precision.'}</span>
+                </div>
+              </div>
+            </div>
+          );
+        }
 
-  const toggleItem = (idx: number) => {
-    setExpandedItems(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
-  };
+        return (
+          <p key={idx} className="text-[11px] text-slate-700 leading-relaxed font-bold">
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
 
-  const radarData = result.rubricScores.map(rs => {
-    let displayScore = rs.score;
-    if (displayScore > 10) displayScore = displayScore / 10;
-    displayScore = Math.min(10, Math.max(0, displayScore));
-    
-    return {
-      subject: rs.category,
-      A: displayScore,
-      fullMark: 10
-    };
-  });
+export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onPracticeDelta, isProductSense }) => {
+  const [showBenchmarkScript, setShowBenchmarkScript] = useState(false);
 
-  const categoryStats = useMemo(() => {
-    const counts: Record<string, number> = {};
-    result.improvementItems.forEach(item => {
-      counts[item.category] = (counts[item.category] || 0) + 1;
-    });
-    return counts;
-  }, [result.improvementItems]);
-
-  const uniqueCategories = useMemo(() => {
-    return ['All', ...Object.keys(categoryStats).sort()];
-  }, [categoryStats]);
-
-  const levelToValue = (level: string) => {
-    switch (level) {
-      case 'High': return 3;
-      case 'Medium': return 2;
-      case 'Low': return 1;
-      default: return 0;
-    }
-  };
-
-  const filteredAndSortedItems = useMemo(() => {
-    let items = result.improvementItems.map((item, originalIndex) => ({ ...item, originalIndex }));
-    if (activeCategory !== 'All') {
-      items = items.filter(item => item.category === activeCategory);
-    }
-    items.sort((a, b) => {
-      if (sortBy === 'impact') {
-        return levelToValue(b.impact) - levelToValue(a.impact);
-      } else {
-        return levelToValue(b.effort) - levelToValue(a.effort);
-      }
-    });
-    return items;
-  }, [result.improvementItems, activeCategory, sortBy]);
-
-  const methodologyName = isProductSense 
-    ? "Principal Strategic Principles" 
-    : "Executive Execution Standards";
+  const commData = useMemo(() => [
+    { category: 'Confidence', value: result.communicationAnalysis?.confidenceScore || 0, full: 100 },
+    { category: 'Clarity', value: result.communicationAnalysis?.clarityScore || 0, full: 100 },
+    { category: 'Structure', value: result.overallScore || 0, full: 100 },
+    { category: 'Vision', value: result.visionScore || 0, full: 100 },
+    { category: 'Defense', value: result.defenseScore || 0, full: 100 },
+  ], [result]);
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 p-8 rounded-3xl text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-[80px] -mr-32 -mt-32"></div>
-        <div className="space-y-2 text-center md:text-left relative z-10">
-          <h2 className="text-3xl font-black tracking-tight">Executive Evaluation</h2>
-          <p className="text-indigo-200/70 text-sm max-w-md">
-            Measured against <span className="text-indigo-300 font-bold">{methodologyName}</span> for a Staff PM bar.
-          </p>
-        </div>
-        <div className="flex items-center justify-center w-28 h-28 rounded-3xl bg-white/5 backdrop-blur-md border border-white/10 relative z-10">
-          <div className="text-center">
-            <span className="block text-4xl font-black leading-none">{Math.min(100, Math.max(0, result.overallScore))}</span>
-            <span className="text-[10px] uppercase font-bold tracking-widest opacity-50 mt-1 block">Rating</span>
+    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      {/* EXECUTIVE SCOREBOARD */}
+      <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-10 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row justify-between items-center gap-10 relative z-10">
+          <div className="space-y-4 max-w-xl text-center lg:text-left">
+            <span className="bg-indigo-500/20 text-indigo-300 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] border border-indigo-500/30">Executive Audit Result</span>
+            <h2 className="text-5xl font-black tracking-tighter">Strategic Mastery</h2>
+            
+            <div className="flex flex-wrap justify-center lg:justify-start gap-4 mt-6">
+              <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-2xl flex flex-col">
+                 <p className="text-[9px] uppercase font-black text-slate-400 tracking-widest mb-1">The Framework Gap</p>
+                 <div className="flex items-center space-x-2">
+                    <span className="text-[10px] text-slate-400 line-through decoration-rose-500/50">{result.userLogicPath || 'Unstructured'}</span>
+                    <svg className="w-3 h-3 text-indigo-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                    <span className="text-sm font-black text-indigo-300">Staff Strategic Path</span>
+                 </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-2xl flex items-center gap-3">
+                 <div>
+                    <p className="text-[9px] uppercase font-black text-slate-400 tracking-widest mb-1">Stability Index</p>
+                    <p className={`text-sm font-bold ${result.defensivePivotScore >= 8 ? 'text-emerald-400' : 'text-rose-400'}`}>{result.defensivePivotScore || 0}/10</p>
+                 </div>
+                 <div className="w-12 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                    <div className={`h-full transition-all duration-1000 ${result.defensivePivotScore >= 8 ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{ width: `${(result.defensivePivotScore || 0) * 10}%` }}></div>
+                 </div>
+              </div>
+            </div>
+
+            <div className="pt-4">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Communication Profile</p>
+              <div className="flex items-center space-x-3">
+                 <span className="text-xs font-bold text-indigo-300 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">{result.communicationAnalysis?.tone || 'Neutral'} Tone</span>
+                 <p className="text-[11px] text-slate-400 font-medium line-clamp-1">{result.communicationAnalysis?.summary}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-6">
+             <div className="hidden lg:block w-48 h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart data={commData}>
+                    <PolarGrid stroke="#ffffff20" />
+                    <PolarAngleAxis dataKey="category" tick={{ fill: '#94a3b8', fontSize: 8, fontWeight: 800 }} />
+                    <Radar name="Performance" dataKey="value" stroke="#6366f1" fill="#6366f1" fillOpacity={0.6} />
+                  </RadarChart>
+                </ResponsiveContainer>
+             </div>
+             
+             <div className="text-center ml-4">
+                <div className="w-32 h-32 rounded-[2.5rem] bg-indigo-600 flex flex-col items-center justify-center shadow-2xl border-4 border-indigo-500/30 ring-8 ring-indigo-600/10">
+                   <span className="text-5xl font-black text-white">{result.overallScore}</span>
+                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-200 mt-1">Rating</span>
+                </div>
+             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-8">
-        <div className="flex-1 space-y-6">
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-            <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center justify-between">
-              Core Principles Audit
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded">Score /10</span>
-            </h3>
+      {/* RUBRIC BREAKDOWN */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+         {result.rubricScores?.map((r, i) => (
+           <div key={i} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:border-indigo-200 transition-colors cursor-default">
+              <div className="flex justify-between items-center mb-2">
+                 <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{r.category}</h5>
+                 <span className={`text-sm font-black ${r.score >= 80 ? 'text-emerald-500' : r.score >= 60 ? 'text-amber-500' : 'text-rose-500'}`}>{r.score}</span>
+              </div>
+              <p className="text-[11px] text-slate-600 font-bold leading-relaxed">{r.reasoning}</p>
+           </div>
+         ))}
+      </div>
 
-            <div className="h-[280px] w-full mb-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                  <PolarGrid stroke="#e2e8f0" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: '#64748b', fontWeight: 'bold' }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 10]} axisLine={false} tick={false} />
-                  <Radar name="Performance" dataKey="A" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.2} strokeWidth={2} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-            
-            <div className="space-y-6">
-               {result.rubricScores.map((score, idx) => {
-                 let displayScore = score.score;
-                 if (displayScore > 10) displayScore = displayScore / 10;
-                 displayScore = Math.min(10, Math.max(0, displayScore));
-
-                 return (
-                  <div key={idx} className="space-y-2">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="font-bold text-slate-800 tracking-tight">{score.category}</span>
-                      <span className={`font-black text-xs px-2 py-0.5 rounded ${displayScore >= 8 ? 'bg-emerald-50 text-emerald-600' : displayScore >= 5 ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
-                        {displayScore}/10
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed font-medium">{score.reasoning}</p>
-                    <div className="w-full bg-slate-50 h-1 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-1000 ${displayScore >= 8 ? 'bg-emerald-500' : displayScore >= 5 ? 'bg-amber-500' : 'bg-rose-500'}`} 
-                        style={{ width: `${displayScore * 10}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                 )
-               })}
-            </div>
-          </div>
+      {/* BENCHMARK SECTION (GOLDEN PATH) */}
+      <div className="bg-slate-900 p-10 rounded-[3.5rem] text-white space-y-12 shadow-2xl">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-6">
+           <div className="space-y-1">
+              <h3 className="text-2xl font-black uppercase tracking-widest text-indigo-400">The Staff Golden Path</h3>
+              <p className="text-xs text-slate-400 font-bold">Strategic outlines highlighting what to reject and why.</p>
+           </div>
+           <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10">
+              <button onClick={() => setShowBenchmarkScript(false)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${!showBenchmarkScript ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>The Logic</button>
+              <button onClick={() => setShowBenchmarkScript(true)} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all ${showBenchmarkScript ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>The Script</button>
+           </div>
         </div>
 
-        <div className="flex-1 space-y-6">
-          <CommunicationEvaluation analysis={result.communicationAnalysis} />
-
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h3 className="text-lg font-bold text-slate-900 flex items-center mb-6">
-              Staff-Level Delta
-            </h3>
-            
-            <div className="space-y-4 mb-8">
-              {filteredAndSortedItems.map((item, i) => {
-                const isExpanded = expandedItems.includes(item.originalIndex);
-                return (
-                  <div 
-                    key={i} 
-                    className={`group p-5 rounded-2xl border transition-all duration-300 cursor-pointer ${
-                      isExpanded 
-                        ? 'border-indigo-400 bg-indigo-50/30' 
-                        : 'border-slate-100 bg-white hover:border-indigo-200 shadow-sm'
-                    }`}
-                    onClick={() => toggleItem(item.originalIndex)}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                          {item.category}
-                        </span>
-                      <div className="flex space-x-1.5">
-                        <EffortBadge level={item.effort} />
-                        <ImpactBadge level={item.impact} />
-                      </div>
-                    </div>
-                    <p className="text-sm text-slate-800 font-bold">{item.action}</p>
-                    {isExpanded && (
-                      <div className="mt-4 pt-4 border-t border-indigo-100 space-y-3">
-                        <p className="text-xs text-slate-600 italic">{item.whyItMatters}</p>
-                        <p className="text-xs text-slate-700 font-semibold">{item.howTo}</p>
-                      </div>
-                    )}
+        {showBenchmarkScript ? (
+          <BenchmarkScript text={result.benchmarkResponse} />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {result.goldenPath?.map((step, i) => (
+              <div key={i} className="flex flex-col space-y-5 p-8 bg-white/5 rounded-[2.5rem] border border-white/5 hover:border-indigo-500/40 transition-all group relative overflow-hidden">
+                  <div className="flex justify-between items-start relative z-10">
+                    <span className="text-5xl font-black text-indigo-500/10 group-hover:text-indigo-500/30 transition-colors">0{i+1}</span>
+                    <div className="w-10 h-1 bg-indigo-500/20 rounded-full mt-6"></div>
                   </div>
-                );
-              })}
-            </div>
+                  
+                  <div className="space-y-3 relative z-10">
+                    <h5 className="font-black text-[13px] uppercase text-indigo-300 leading-tight tracking-wide">{step.title}</h5>
+                    <p className="text-xs text-slate-300 font-bold leading-relaxed">{step.content}</p>
+                  </div>
+
+                  <div className="space-y-4 pt-5 border-t border-white/5 mt-auto relative z-10">
+                    <div className="space-y-1.5">
+                      <span className="font-black text-indigo-500 text-[9px] block uppercase tracking-widest">Core Logic</span>
+                      <p className="text-[11px] italic text-slate-400 font-medium leading-relaxed">{step.why}</p>
+                    </div>
+
+                    <div className="bg-rose-500/10 p-5 rounded-3xl border border-rose-500/20 group-hover:bg-rose-500/20 transition-all">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <svg className="w-3 h-3 text-rose-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                        <span className="font-black text-rose-400 text-[9px] block uppercase tracking-widest">Rejected Path</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed font-bold">
+                        {step.strategicTradeOffs || "No specific trade-offs identified."}
+                      </p>
+                    </div>
+                  </div>
+              </div>
+            ))}
           </div>
+        )}
+      </div>
+
+      {/* DELTA OPPORTUNITIES */}
+      <div className="space-y-8">
+        <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Growth Opportunities</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+           {result.improvementItems?.map((item, i) => (
+             <div key={i} className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-sm hover:border-indigo-400 transition-all flex flex-col justify-between group">
+                <div className="space-y-6">
+                   <div className="flex justify-between items-start">
+                      <div className="flex flex-col space-y-1.5">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-1 bg-slate-50 rounded-lg w-fit">{item.category}</span>
+                        <h5 className="text-2xl font-black text-slate-900 leading-tight group-hover:text-indigo-600 transition-colors mt-2">{item.action}</h5>
+                      </div>
+                      <ImpactBadge level={item.impact} />
+                   </div>
+                   
+                   <p className="text-sm text-slate-500 font-medium leading-relaxed">{item.whyItMatters}</p>
+                   
+                   <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner">
+                      <div className="flex items-center space-x-2 mb-5">
+                        <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
+                        <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Step-By-Step Phrasing Guide</p>
+                      </div>
+                      <HowToRenderer text={item.howTo} />
+                   </div>
+                </div>
+                <button onClick={() => onPracticeDelta(item)} className="mt-10 w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-[11px] uppercase tracking-[0.25em] hover:bg-indigo-700 transition shadow-xl active:scale-95 transform hover:-translate-y-1">Practice This Phrase</button>
+             </div>
+           ))}
         </div>
       </div>
 
-      <div className="flex justify-center pt-8">
-        <button
-          onClick={onReset}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 px-14 rounded-2xl transition text-lg uppercase tracking-widest"
-        >
-          Master Next Case
-        </button>
+      <div className="flex justify-center pt-16">
+        <button onClick={onReset} className="bg-slate-900 hover:bg-black text-white font-black py-7 px-24 rounded-[2.5rem] transition-all shadow-2xl text-xl uppercase tracking-[0.4em] transform hover:scale-105 active:scale-95">Master Next Case</button>
       </div>
     </div>
   );
