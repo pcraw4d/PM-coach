@@ -27,15 +27,15 @@ const App: React.FC = () => {
   // Security & Authorization Check
   useEffect(() => {
     const checkAuth = async () => {
-      // Use literal references for bundler replacement
-      const envKey = (process.env as any).ACCESS_KEY || 
-                     (process.env as any).VITE_ACCESS_KEY || 
-                     (process.env as any).REACT_APP_ACCESS_KEY;
-                     
       const savedToken = localStorage.getItem('pm_app_access_token');
       
-      // If we have a saved token and it matches the current environment key, authorize immediately
-      if (envKey && savedToken === envKey) {
+      // Use direct literal references for bundler replacement
+      const matchesEnv = 
+        (savedToken && savedToken === (process.env as any).ACCESS_KEY) ||
+        (savedToken && savedToken === (process.env as any).VITE_ACCESS_KEY) ||
+        (savedToken && savedToken === (process.env as any).REACT_APP_ACCESS_KEY);
+      
+      if (matchesEnv) {
         setIsAuthorized(true);
       }
       

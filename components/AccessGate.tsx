@@ -9,26 +9,31 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState(false);
 
-  // Use a variety of possible env names to catch different bundler configs
+  // We check if the bundler has replaced these literals with actual values.
+  // We use multiple common prefixes to ensure compatibility.
   const isEnvConfigured = useMemo(() => {
-    const env = (window as any).process?.env || {};
-    return !!(env.ACCESS_KEY || env.VITE_ACCESS_KEY || env.REACT_APP_ACCESS_KEY);
+    const k1 = (process.env as any).ACCESS_KEY;
+    const k2 = (process.env as any).VITE_ACCESS_KEY;
+    const k3 = (process.env as any).REACT_APP_ACCESS_KEY;
+    return !!(k1 || k2 || k3);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // We use a direct literal check here. 
-    // This allows bundlers to 'bake in' the value during build time.
-    const masterKey = (process.env as any).ACCESS_KEY || 
-                      (process.env as any).VITE_ACCESS_KEY || 
-                      (process.env as any).REACT_APP_ACCESS_KEY;
+    // IMPORTANT: We use the literal process.env references directly in the comparison.
+    // This is the most reliable way to ensure the bundler replaces them with the actual key.
+    const isCorrect = 
+      (passcode && passcode === (process.env as any).ACCESS_KEY) ||
+      (passcode && passcode === (process.env as any).VITE_ACCESS_KEY) ||
+      (passcode && passcode === (process.env as any).REACT_APP_ACCESS_KEY);
 
-    if (passcode && passcode === masterKey) {
+    if (isCorrect) {
       localStorage.setItem('pm_app_access_token', passcode);
       onGrantAccess();
     } else {
       setError(true);
+      console.error("Authentication failed. Entered key does not match environment variables.");
       setTimeout(() => setError(false), 2000);
     }
   };
@@ -84,7 +89,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
             {!isEnvConfigured && (
               <div className="w-full p-4 rounded-2xl bg-slate-800/50 border border-slate-700/50 mt-4">
                 <p className="text-slate-400 text-[9px] font-bold leading-relaxed uppercase tracking-wider">
-                   Note: If your key fails, ensure you have <strong>redeployed</strong> in Vercel after adding the variable.
+                   Note: Environment variables not detected. <br/>Ensure you have <strong>redeployed</strong> in Vercel after adding the variable.
                 </p>
               </div>
             )}
