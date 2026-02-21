@@ -29,13 +29,23 @@ const App: React.FC = () => {
     const checkAuth = async () => {
       const savedToken = localStorage.getItem('pm_app_access_token');
       
-      // Use direct literal references for bundler replacement
-      const matchesEnv = 
-        (savedToken && savedToken === (process.env as any).ACCESS_KEY) ||
-        (savedToken && savedToken === (process.env as any).VITE_ACCESS_KEY) ||
-        (savedToken && savedToken === (process.env as any).REACT_APP_ACCESS_KEY);
+      if (!savedToken) {
+        setIsAuthLoading(false);
+        return;
+      }
+
+      // Exact literal matches for bundler replacement
+      const matchesVite = savedToken === process.env.VITE_ACCESS_KEY;
+      const matchesStandard = savedToken === process.env.ACCESS_KEY;
+      const matchesReact = savedToken === process.env.REACT_APP_ACCESS_KEY;
       
-      if (matchesEnv) {
+      let matchesMeta = false;
+      try {
+        // @ts-ignore
+        matchesMeta = (savedToken === import.meta.env?.VITE_ACCESS_KEY) || (savedToken === import.meta.env?.ACCESS_KEY);
+      } catch (e) {}
+      
+      if (matchesVite || matchesStandard || matchesReact || matchesMeta) {
         setIsAuthorized(true);
       }
       

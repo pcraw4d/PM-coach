@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 
 interface AccessGateProps {
   onGrantAccess: () => void;
@@ -9,31 +9,57 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState(false);
 
-  // We check if the bundler has replaced these literals with actual values.
-  // We use multiple common prefixes to ensure compatibility.
+  // We use a variety of literal checks. 
+  // Bundlers perform a find-and-replace on these EXACT strings.
   const isEnvConfigured = useMemo(() => {
-    const k1 = (process.env as any).ACCESS_KEY;
-    const k2 = (process.env as any).VITE_ACCESS_KEY;
-    const k3 = (process.env as any).REACT_APP_ACCESS_KEY;
-    return !!(k1 || k2 || k3);
+    // Check various common literal patterns
+    const hasKey = !!(
+      process.env.ACCESS_KEY || 
+      process.env.VITE_ACCESS_KEY || 
+      process.env.REACT_APP_ACCESS_KEY
+    );
+    
+    // Check Vite-specific meta env
+    let hasMeta = false;
+    try {
+      // @ts-ignore
+      hasMeta = !!(import.meta.env?.VITE_ACCESS_KEY || import.meta.env?.ACCESS_KEY);
+    } catch (e) {}
+
+    return hasKey || hasMeta;
   }, []);
+
+  useEffect(() => {
+    console.log("[Vault] Security module initialized.");
+    if (!isEnvConfigured) {
+      console.warn("[Vault] Configuration check: Environment variables not explicitly detected by static scan. If login fails, ensure Vercel variables are set and a new deployment was triggered.");
+    }
+  }, [isEnvConfigured]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const input = passcode.trim();
     
-    // IMPORTANT: We use the literal process.env references directly in the comparison.
-    // This is the most reliable way to ensure the bundler replaces them with the actual key.
-    const isCorrect = 
-      (passcode && passcode === (process.env as any).ACCESS_KEY) ||
-      (passcode && passcode === (process.env as any).VITE_ACCESS_KEY) ||
-      (passcode && passcode === (process.env as any).REACT_APP_ACCESS_KEY);
+    if (!input) return;
 
-    if (isCorrect) {
-      localStorage.setItem('pm_app_access_token', passcode);
+    // Use multiple literal comparisons. 
+    // The bundler replaces these exact tokens with the value of your environment variable.
+    const match1 = input === process.env.ACCESS_KEY;
+    const match2 = input === process.env.VITE_ACCESS_KEY;
+    const match3 = input === process.env.REACT_APP_ACCESS_KEY;
+    
+    let matchMeta = false;
+    try {
+      // @ts-ignore
+      matchMeta = (input === import.meta.env.VITE_ACCESS_KEY) || (input === import.meta.env.ACCESS_KEY);
+    } catch (e) {}
+
+    if (match1 || match2 || match3 || matchMeta) {
+      localStorage.setItem('pm_app_access_token', input);
       onGrantAccess();
     } else {
       setError(true);
-      console.error("Authentication failed. Entered key does not match environment variables.");
+      console.error("[Vault] Access Denied: Provided key does not match any configured environment variable.");
       setTimeout(() => setError(false), 2000);
     }
   };
@@ -86,13 +112,11 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
               </button>
             </form>
 
-            {!isEnvConfigured && (
-              <div className="w-full p-4 rounded-2xl bg-slate-800/50 border border-slate-700/50 mt-4">
-                <p className="text-slate-400 text-[9px] font-bold leading-relaxed uppercase tracking-wider">
-                   Note: Environment variables not detected. <br/>Ensure you have <strong>redeployed</strong> in Vercel after adding the variable.
-                </p>
-              </div>
-            )}
+            <div className="w-full p-4 rounded-2xl bg-slate-800/50 border border-slate-700/50 mt-4">
+              <p className="text-slate-400 text-[9px] font-bold leading-relaxed uppercase tracking-wider">
+                Note: Ensure you have <strong>redeployed</strong> your project after adding variables in Vercel to apply changes.
+              </p>
+            </div>
             
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em] pt-4">
               Authorized Personnel Only
