@@ -1,16 +1,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Header, Container } from './components/Layout';
-import { Recorder } from './components/Recorder';
-import { FeedbackView } from './components/FeedbackView';
-import { HistoryList } from './components/HistoryList';
-import { SettingsView } from './components/SettingsView';
-import { CustomQuestionInput } from './components/CustomQuestionInput';
-import { AccessGate } from './components/AccessGate';
-import { InterviewType, Question, InterviewPhase, InterviewResult, StoredInterview, User } from './types';
-import { QUESTIONS } from './constants';
-import { geminiService } from './services/geminiService';
-import { syncService } from './services/syncService';
+import { Header, Container } from './components/Layout.tsx';
+import { Recorder } from './components/Recorder.tsx';
+import { FeedbackView } from './components/FeedbackView.tsx';
+import { HistoryList } from './components/HistoryList.tsx';
+import { SettingsView } from './components/SettingsView.tsx';
+import { CustomQuestionInput } from './components/CustomQuestionInput.tsx';
+import { AccessGate } from './components/AccessGate.tsx';
+import { InterviewType, Question, InterviewPhase, InterviewResult, StoredInterview, User } from './types.ts';
+import { QUESTIONS } from './constants.tsx';
+import { geminiService } from './services/geminiService.ts';
+import { syncService } from './services/syncService.ts';
 
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
@@ -25,7 +25,9 @@ const App: React.FC = () => {
 
   // Security & Authorization Check
   useEffect(() => {
-    const accessKey = (process.env as any).ACCESS_KEY;
+    // Safety check for environment variables in the browser
+    const accessKey = typeof process !== 'undefined' ? (process.env as any).ACCESS_KEY : null;
+    
     // If no access key is configured in env, allow access (local dev mode)
     if (!accessKey) {
       setIsAuthorized(true);
