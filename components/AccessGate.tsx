@@ -11,16 +11,17 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
 
   // Memoize expected key to detect if it's missing from environment
   const expectedKey = useMemo(() => {
-    return typeof process !== 'undefined' ? (process.env as any).ACCESS_KEY : null;
+    // Attempt to find the key in the process.env shim
+    return (typeof process !== 'undefined' && (process.env as any).ACCESS_KEY) || null;
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Safety check: Don't allow empty bypass if environment key is missing
+    // Safety check: If the key is missing from environment, the gate cannot validate successfully.
     if (!expectedKey) {
        setError(true);
-       alert("Security configuration missing. Please ensure ACCESS_KEY is set in Vercel.");
+       console.error("ACCESS_KEY is missing from process.env. Ensure it is set in Vercel.");
        return;
     }
 
@@ -54,40 +55,40 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
               </p>
             </div>
 
-            {!expectedKey ? (
-              <div className="w-full p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20">
-                <p className="text-rose-400 text-xs font-bold leading-relaxed">
-                   ⚠️ SYSTEM ERROR: <br/>
-                   ACCESS_KEY environment variable not found. Check your Vercel Dashboard Settings.
+            <form onSubmit={handleSubmit} className="w-full space-y-4">
+              <div className="relative">
+                <input
+                  type="password"
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  placeholder="Enter Access Key"
+                  autoFocus
+                  className={`w-full bg-slate-800/50 border ${
+                    error ? 'border-rose-500 animate-shake' : 'border-slate-700'
+                  } text-white px-6 py-5 rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-center tracking-widest placeholder:text-slate-600 placeholder:font-sans placeholder:tracking-normal`}
+                />
+                {error && (
+                  <p className="text-rose-500 text-[10px] font-black uppercase tracking-widest mt-2">
+                    {expectedKey ? 'Invalid Key' : 'System Configuration Error'}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-lg shadow-indigo-900/20 transition-all active:scale-95 uppercase tracking-widest text-xs"
+              >
+                Unlock Repository
+              </button>
+            </form>
+
+            {!expectedKey && (
+              <div className="w-full p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 mt-4">
+                <p className="text-rose-400 text-[10px] font-bold leading-relaxed">
+                   ⚠️ ACCESS_KEY not detected in browser. <br/>
+                   Verify your Vercel Environment Variables and <strong>redeploy</strong> your project to apply changes.
                 </p>
               </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="w-full space-y-4">
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={passcode}
-                    onChange={(e) => setPasscode(e.target.value)}
-                    placeholder="Enter Access Key"
-                    autoFocus
-                    className={`w-full bg-slate-800/50 border ${
-                      error ? 'border-rose-500 animate-shake' : 'border-slate-700'
-                    } text-white px-6 py-5 rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-center tracking-widest placeholder:text-slate-600 placeholder:font-sans placeholder:tracking-normal`}
-                  />
-                  {error && (
-                    <p className="text-rose-500 text-[10px] font-black uppercase tracking-widest mt-2">
-                      Invalid Key
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-lg shadow-indigo-900/20 transition-all active:scale-95 uppercase tracking-widest text-xs"
-                >
-                  Unlock Repository
-                </button>
-              </form>
             )}
             
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em] pt-4">
