@@ -29,27 +29,31 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const savedToken = localStorage.getItem('pm_app_access_token')?.trim();
-      if (!savedToken) {
-        setIsAuthLoading(false);
-        return;
-      }
+      try {
+        const savedToken = localStorage.getItem('pm_app_access_token')?.trim();
+        if (!savedToken) {
+          setIsAuthLoading(false);
+          return;
+        }
 
-      // Standard test key logic
-      const isLocalTestKey = savedToken === 'pm-coach-local-test';
-      
-      // Try to read environment variables safely
-      const env = (import.meta as any).env || {};
-      const proc = (typeof process !== 'undefined' && process.env) ? process.env : {};
-      
-      const vKey = env.VITE_ACCESS_KEY || env.ACCESS_KEY || proc.VITE_ACCESS_KEY || proc.ACCESS_KEY;
-      
-      if (isLocalTestKey || (vKey && savedToken === vKey)) {
-        setIsAuthorized(true);
-      } else {
-        localStorage.removeItem('pm_app_access_token');
+        const isLocalTestKey = savedToken === 'pm-coach-local-test';
+        
+        // Use window.process.env which is shimmed in index.html
+        const vKey = (window.process?.env?.ACCESS_KEY || 
+                      window.process?.env?.VITE_ACCESS_KEY ||
+                      (import.meta as any).env?.VITE_ACCESS_KEY ||
+                      (import.meta as any).env?.ACCESS_KEY);
+        
+        if (isLocalTestKey || (vKey && savedToken === vKey)) {
+          setIsAuthorized(true);
+        } else {
+          localStorage.removeItem('pm_app_access_token');
+        }
+      } catch (e) {
+        console.error("Auth check failed", e);
+      } finally {
+        setIsAuthLoading(false);
       }
-      setIsAuthLoading(false);
     };
     checkAuth();
   }, []);

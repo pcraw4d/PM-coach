@@ -14,8 +14,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   };
 
   const configuredKeys = useMemo(() => {
-    // Robust environment detection
-    const env = (window as any).importMetaEnv || (import.meta as any).env || {};
+    const env = (import.meta as any).env || {};
     const proc = (typeof process !== 'undefined' && process.env) ? process.env : {};
     
     const keys = new Set<string>();
@@ -111,7 +110,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
 
               <button
                 type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-50 text-white font-black py-5 rounded-2xl shadow-lg shadow-indigo-900/20 transition-all active:scale-95 uppercase tracking-widest text-xs"
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 rounded-2xl shadow-lg shadow-indigo-900/20 transition-all active:scale-95 uppercase tracking-widest text-xs"
               >
                 Unlock Repository
               </button>
@@ -119,28 +118,23 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
 
             <div className="w-full p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 mt-4">
               <div className="text-amber-500 text-[10px] font-bold leading-relaxed uppercase tracking-wider text-left">
-                  <p className="mb-1">⚠️ Access Troubleshooting:</p>
-                  <p>1. Check your .env for configuration.</p>
-                  <p>
-                    2. Preview bypass: 
+                  <p className="mb-1 text-[9px]">⚠️ TROUBLESHOOTING:</p>
+                  <p className="text-[8px]">1. Verify ACCESS_KEY in your env settings.</p>
+                  <p className="text-[8px]">
+                    2. Browser-only bypass: 
                     <button 
                       type="button"
                       onClick={handleQuickBypass}
-                      className="ml-1 px-2 py-0.5 bg-amber-500 text-slate-900 rounded font-black hover:bg-amber-400 transition cursor-pointer"
+                      className="ml-1 px-1.5 py-0.5 bg-amber-500 text-slate-900 rounded font-black hover:bg-amber-400 transition cursor-pointer uppercase text-[7px]"
                     >
                       Use Test Key
                     </button>
                   </p>
               </div>
             </div>
-            
-            <p className="text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em] pt-4">
-              Authorized Personnel Only
-            </p>
           </div>
         </div>
       </div>
-      
       <style>{`
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
