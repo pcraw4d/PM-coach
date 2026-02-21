@@ -34,18 +34,17 @@ const App: React.FC = () => {
         return;
       }
 
-      // Exact literal matches for bundler replacement
-      const matchesVite = savedToken === process.env.VITE_ACCESS_KEY;
-      const matchesStandard = savedToken === process.env.ACCESS_KEY;
-      const matchesReact = savedToken === process.env.REACT_APP_ACCESS_KEY;
+      // Check Vite Meta
+      // Fix: Cast import.meta to any to resolve TS error for env access
+      const matchesViteMeta = savedToken === (import.meta as any).env.VITE_ACCESS_KEY;
+      const matchesMeta = savedToken === (import.meta as any).env.ACCESS_KEY;
+
+      // Check Process
+      const matchesProcessVite = typeof process !== 'undefined' && savedToken === process.env.VITE_ACCESS_KEY;
+      const matchesProcessAccess = typeof process !== 'undefined' && savedToken === process.env.ACCESS_KEY;
+      const matchesProcessReact = typeof process !== 'undefined' && savedToken === process.env.REACT_APP_ACCESS_KEY;
       
-      let matchesMeta = false;
-      try {
-        // @ts-ignore
-        matchesMeta = (savedToken === import.meta.env?.VITE_ACCESS_KEY) || (savedToken === import.meta.env?.ACCESS_KEY);
-      } catch (e) {}
-      
-      if (matchesVite || matchesStandard || matchesReact || matchesMeta) {
+      if (matchesViteMeta || matchesMeta || matchesProcessVite || matchesProcessAccess || matchesProcessReact) {
         setIsAuthorized(true);
       }
       

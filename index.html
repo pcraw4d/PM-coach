@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="PM Coach AI">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
     <link rel="apple-touch-icon" href="https://api.dicebear.com/7.x/bottts/svg?seed=pmcoach&backgroundColor=4f46e5">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -38,11 +38,6 @@
         "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
       }
     }
-    </script>
-
-    <!-- Browser Environment Shim -->
-    <script>
-      window.process = window.process || { env: {} };
     </script>
 </head>
 <body>

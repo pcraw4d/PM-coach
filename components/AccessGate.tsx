@@ -9,32 +9,30 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState(false);
 
-  // We use a variety of literal checks. 
-  // Bundlers perform a find-and-replace on these EXACT strings.
-  const isEnvConfigured = useMemo(() => {
-    // Check various common literal patterns
-    const hasKey = !!(
-      process.env.ACCESS_KEY || 
-      process.env.VITE_ACCESS_KEY || 
-      process.env.REACT_APP_ACCESS_KEY
-    );
-    
-    // Check Vite-specific meta env
-    let hasMeta = false;
-    try {
-      // @ts-ignore
-      hasMeta = !!(import.meta.env?.VITE_ACCESS_KEY || import.meta.env?.ACCESS_KEY);
-    } catch (e) {}
-
-    return hasKey || hasMeta;
+  // Diagnostic: Identify which keys the bundler actually injected
+  useEffect(() => {
+    const diagnostic = {
+      // Fix: Cast import.meta to any to resolve TS error for env access
+      VITE_ACCESS_KEY: !!((import.meta as any).env && (import.meta as any).env.VITE_ACCESS_KEY),
+      PROCESS_VITE_KEY: !!(typeof process !== 'undefined' && process.env.VITE_ACCESS_KEY),
+      PROCESS_ACCESS_KEY: !!(typeof process !== 'undefined' && process.env.ACCESS_KEY),
+    };
+    console.log("[Vault] Environment Variable Availability Check:", diagnostic);
   }, []);
 
-  useEffect(() => {
-    console.log("[Vault] Security module initialized.");
-    if (!isEnvConfigured) {
-      console.warn("[Vault] Configuration check: Environment variables not explicitly detected by static scan. If login fails, ensure Vercel variables are set and a new deployment was triggered.");
+  const isEnvConfigured = useMemo(() => {
+    // Vite-style check
+    // Fix: Cast import.meta to any to resolve TS error for env access
+    const viteKey = (import.meta as any).env?.VITE_ACCESS_KEY || (import.meta as any).env?.ACCESS_KEY;
+    if (viteKey) return true;
+
+    // Process-style check
+    if (typeof process !== 'undefined' && process.env) {
+      return !!(process.env.VITE_ACCESS_KEY || process.env.ACCESS_KEY || process.env.REACT_APP_ACCESS_KEY);
     }
-  }, [isEnvConfigured]);
+    
+    return false;
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,24 +40,22 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
     
     if (!input) return;
 
-    // Use multiple literal comparisons. 
-    // The bundler replaces these exact tokens with the value of your environment variable.
-    const match1 = input === process.env.ACCESS_KEY;
-    const match2 = input === process.env.VITE_ACCESS_KEY;
-    const match3 = input === process.env.REACT_APP_ACCESS_KEY;
-    
-    let matchMeta = false;
-    try {
-      // @ts-ignore
-      matchMeta = (input === import.meta.env.VITE_ACCESS_KEY) || (input === import.meta.env.ACCESS_KEY);
-    } catch (e) {}
+    // 1. Check Vite-style replacements (Literal strings for the bundler)
+    // Fix: Cast import.meta to any to resolve TS error for env access
+    const matchesViteMeta = input === (import.meta as any).env.VITE_ACCESS_KEY;
+    const matchesMeta = input === (import.meta as any).env.ACCESS_KEY;
 
-    if (match1 || match2 || match3 || matchMeta) {
+    // 2. Check Process-style replacements
+    const matchesProcessVite = typeof process !== 'undefined' && input === process.env.VITE_ACCESS_KEY;
+    const matchesProcessAccess = typeof process !== 'undefined' && input === process.env.ACCESS_KEY;
+    const matchesProcessReact = typeof process !== 'undefined' && input === process.env.REACT_APP_ACCESS_KEY;
+
+    if (matchesViteMeta || matchesMeta || matchesProcessVite || matchesProcessAccess || matchesProcessReact) {
       localStorage.setItem('pm_app_access_token', input);
       onGrantAccess();
     } else {
       setError(true);
-      console.error("[Vault] Access Denied: Provided key does not match any configured environment variable.");
+      console.error("[Vault] Access Denied: Key mismatch.");
       setTimeout(() => setError(false), 2000);
     }
   };
@@ -112,11 +108,15 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
               </button>
             </form>
 
-            <div className="w-full p-4 rounded-2xl bg-slate-800/50 border border-slate-700/50 mt-4">
-              <p className="text-slate-400 text-[9px] font-bold leading-relaxed uppercase tracking-wider">
-                Note: Ensure you have <strong>redeployed</strong> your project after adding variables in Vercel to apply changes.
-              </p>
-            </div>
+            {!isEnvConfigured && (
+              <div className="w-full p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 mt-4">
+                <p className="text-amber-500 text-[9px] font-bold leading-relaxed uppercase tracking-wider text-left">
+                   ⚠️ Setup Required: <br/>
+                   1. Add <strong>VITE_ACCESS_KEY</strong> in Vercel. <br/>
+                   2. Trigger a <strong>New Deployment</strong>.
+                </p>
+              </div>
+            )}
             
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em] pt-4">
               Authorized Personnel Only
