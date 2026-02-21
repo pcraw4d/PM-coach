@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { InterviewType } from '../types';
+import { InterviewType } from '../types.ts';
 
 interface OnboardingViewProps {
   userName: string;

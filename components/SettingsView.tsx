@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { User } from '../types';
+import { User } from '../types.ts';
 
 interface SettingsViewProps {
   user: User;

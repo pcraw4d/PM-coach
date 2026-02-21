@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header, Container } from './components/Layout.tsx';
 import { Recorder } from './components/Recorder.tsx';
 import { FeedbackView } from './components/FeedbackView.tsx';
@@ -7,10 +6,10 @@ import { HistoryList } from './components/HistoryList.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { CustomQuestionInput } from './components/CustomQuestionInput.tsx';
 import { AccessGate } from './components/AccessGate.tsx';
-import { InterviewType, Question, InterviewPhase, InterviewResult, StoredInterview, User } from './types.ts';
+import { MissionFeed } from './components/MissionFeed.tsx';
+import { InterviewType, Question, InterviewPhase, InterviewResult, HistoryItem, User, KnowledgeMission, StoredMission, StoredInterview } from './types.ts';
 import { QUESTIONS } from './constants.tsx';
 import { geminiService } from './services/geminiService.ts';
-import { syncService } from './services/syncService.ts';
 
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
@@ -21,36 +20,52 @@ const App: React.FC = () => {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<InterviewResult | null>(null);
-  const [history, setHistory] = useState<StoredInterview[]>([]);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [dailyMissions, setDailyMissions] = useState<KnowledgeMission[]>([]);
+  const [isMissionsLoading, setIsMissionsLoading] = useState(false);
   
-  // Grill states
   const [initialTranscript, setInitialTranscript] = useState<string>('');
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
 
-  // Security & Authorization Check
   useEffect(() => {
     const checkAuth = async () => {
-      const savedToken = localStorage.getItem('pm_app_access_token');
+      const savedToken = localStorage.getItem('pm_app_access_token')?.trim();
       if (!savedToken) {
         setIsAuthLoading(false);
         return;
       }
-      const matchesViteMeta = savedToken === (import.meta as any).env.VITE_ACCESS_KEY;
-      const matchesMeta = savedToken === (import.meta as any).env.ACCESS_KEY;
-      const matchesProcessVite = typeof process !== 'undefined' && savedToken === process.env.VITE_ACCESS_KEY;
-      const matchesProcessAccess = typeof process !== 'undefined' && savedToken === process.env.ACCESS_KEY;
-      const matchesProcessReact = typeof process !== 'undefined' && savedToken === process.env.REACT_APP_ACCESS_KEY;
-      
-      if (matchesViteMeta || matchesMeta || matchesProcessVite || matchesProcessAccess || matchesProcessReact) {
+
+      const clean = (key: any): string => {
+        if (!key || typeof key !== 'string') return '';
+        return key.replace(/['"\r\n\t]/g, '').trim();
+      };
+
+      const env = (import.meta as any).env || {};
+      const proc = typeof process !== 'undefined' ? process.env : {};
+
+      const vKey = clean(env.VITE_ACCESS_KEY);
+      const aKey = clean(env.ACCESS_KEY);
+      const pVKey = clean(proc.VITE_ACCESS_KEY);
+      const pAKey = clean(proc.ACCESS_KEY);
+
+      const matchesEnv = 
+        (vKey && savedToken === vKey) || 
+        (aKey && savedToken === aKey) ||
+        (pVKey && savedToken === pVKey) ||
+        (pAKey && savedToken === pAKey);
+
+      const isLocalTestKey = savedToken === 'pm-coach-local-test';
+
+      if (matchesEnv || isLocalTestKey) {
         setIsAuthorized(true);
+      } else {
+        localStorage.removeItem('pm_app_access_token');
       }
       setIsAuthLoading(false);
     };
     checkAuth();
   }, []);
 
-  // Initialize single user
   useEffect(() => {
     if (!isAuthorized) return;
     const savedUser = localStorage.getItem('pm_coach_personal_user');
@@ -68,152 +83,171 @@ const App: React.FC = () => {
       setUser(defaultUser);
       localStorage.setItem('pm_coach_personal_user', JSON.stringify(defaultUser));
     }
-    const savedHistory = localStorage.getItem('pm_history_me');
+
+    const savedHistory = localStorage.getItem('pm_coach_history');
     if (savedHistory) {
       setHistory(JSON.parse(savedHistory));
     }
   }, [isAuthorized]);
 
-  // Sync local changes to local storage
   useEffect(() => {
-    if (history.length > 0) {
-      localStorage.setItem('pm_history_me', JSON.stringify(history));
+    if (isAuthorized) {
+      fetchMissions();
     }
-  }, [history]);
+  }, [isAuthorized]);
 
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem('pm_coach_personal_user', JSON.stringify(user));
-    }
-  }, [user]);
-
-  const stats = useMemo(() => {
-    const totalXP = history.reduce((acc, item) => {
-      let xp = 100 + (item.result.overallScore * 2);
-      if (item.result.overallScore >= 85) xp += 50;
-      return acc + xp;
-    }, 0);
-    const level = Math.floor(totalXP / 1000) + 1;
-    const currentLevelXP = totalXP % 1000;
-    const progress = (currentLevelXP / 1000) * 100;
-    return { totalXP, level, progress, currentLevelXP };
-  }, [history]);
-
-  const handleCloudSync = async () => {
-    if (!user) return;
-    setIsSyncing(true);
+  const fetchMissions = async () => {
+    setIsMissionsLoading(true);
     try {
-      const synced = await syncService.sync({ user, history, lastUpdated: Date.now() });
-      setUser(synced.user);
-      setHistory(synced.history);
-      alert("Cloud Sync Successful!");
-    } catch (err: any) {
-      console.error(err);
-      alert(`Sync Failed: ${err.message || 'Check your Google Cloud configuration'}`);
+      const missions = await geminiService.discoverMissions();
+      setDailyMissions(missions);
+    } catch (error) {
+      console.error("Failed to fetch missions", error);
     } finally {
-      setIsSyncing(false);
+      setIsMissionsLoading(false);
     }
   };
 
-  const startInterview = (type: InterviewType) => {
-    const typeQuestions = QUESTIONS.filter(q => q.type === type);
-    const randomQuestion = typeQuestions[Math.floor(Math.random() * typeQuestions.length)];
+  const handleStartInterview = (type: InterviewType) => {
     setSelectedType(type);
+    const filteredQuestions = QUESTIONS.filter(q => q.type === type);
+    const randomQuestion = filteredQuestions[Math.floor(Math.random() * filteredQuestions.length)];
     setCurrentQuestion(randomQuestion);
     setPhase('question');
   };
 
-  const startCustomInterview = (questionText: string, type: InterviewType) => {
-    const customQuestion: Question = {
-      id: `custom-${crypto.randomUUID()}`,
+  const handleStartCustom = () => {
+    setPhase('custom-input');
+  };
+
+  const handleCustomQuestion = (text: string, type: InterviewType) => {
+    setCurrentQuestion({
+      id: `custom-${Date.now()}`,
       type,
-      text: questionText,
+      text,
       isCustom: true
-    };
-    setSelectedType(type);
-    setCurrentQuestion(customQuestion);
+    });
     setPhase('question');
   };
 
-  // Step 1: Handle Initial Recording
-  const handleInitialRecordingStop = async (blob: Blob) => {
-    if (!currentQuestion || !selectedType || !user) return;
+  const handleStopRecording = async (blob: Blob) => {
+    if (!currentQuestion) return;
     setIsProcessing(true);
     setPhase('analyzing');
+    
     try {
       const reader = new FileReader();
       reader.readAsDataURL(blob);
       reader.onloadend = async () => {
-        const base64 = (reader.result as string).split(',')[1];
+        const base64Audio = (reader.result as string).split(',')[1];
         const { transcription, followUpQuestions } = await geminiService.generateFollowUps(
-          selectedType, 
-          currentQuestion.text, 
-          base64, 
-          'audio/webm'
+          currentQuestion.type,
+          currentQuestion.text,
+          base64Audio,
+          blob.type
         );
+        
         setInitialTranscript(transcription);
         setFollowUpQuestions(followUpQuestions);
         setPhase('grilling');
         setIsProcessing(false);
       };
-    } catch (err: any) {
-      alert("Initial transcription failed: " + (err.message || "Unknown error"));
-      setPhase('question');
+    } catch (error) {
+      console.error("Analysis failed", error);
+      alert("Something went wrong during analysis. Please try again.");
+      setPhase('config');
       setIsProcessing(false);
     }
   };
 
-  // Step 2: Handle Follow-up (Grill) Recording
-  const handleGrillRecordingStop = async (blob: Blob) => {
-    if (!currentQuestion || !selectedType || !user || !initialTranscript) return;
+  const handleStopFollowUp = async (blob: Blob) => {
+    if (!currentQuestion) return;
     setIsProcessing(true);
     setPhase('analyzing');
+    
     try {
       const reader = new FileReader();
       reader.readAsDataURL(blob);
       reader.onloadend = async () => {
-        const base64 = (reader.result as string).split(',')[1];
-        const feedback = await geminiService.analyzeFullSession(
-          selectedType,
+        const base64Audio = (reader.result as string).split(',')[1];
+        const analysis = await geminiService.analyzeFullSession(
+          currentQuestion.type,
           currentQuestion.text,
           initialTranscript,
           followUpQuestions,
-          base64,
-          'audio/webm'
+          base64Audio,
+          blob.type
         );
         
-        const newEntry: StoredInterview = {
-          id: crypto.randomUUID(),
+        setResult(analysis);
+        
+        const storedInterview: StoredInterview = {
+          id: `interview-${Date.now()}`,
+          activityType: 'INTERVIEW',
           timestamp: Date.now(),
           questionTitle: currentQuestion.text,
-          type: selectedType,
-          result: feedback
+          type: currentQuestion.type,
+          result: analysis
         };
-        setHistory(prev => [newEntry, ...prev]);
-        setResult(feedback);
+        
+        const newHistory = [storedInterview, ...history];
+        setHistory(newHistory);
+        localStorage.setItem('pm_coach_history', JSON.stringify(newHistory));
+        
         setPhase('result');
         setIsProcessing(false);
       };
-    } catch (err: any) {
-      alert("Final analysis failed: " + (err.message || "Unknown error"));
-      setPhase('grilling');
+    } catch (error) {
+      console.error("Final analysis failed", error);
+      alert("Something went wrong. Please try again.");
+      setPhase('config');
       setIsProcessing(false);
     }
   };
 
-  const reset = () => {
-    setPhase('config');
-    setSelectedType(null);
-    setCurrentQuestion(null);
-    setResult(null);
-    setInitialTranscript('');
-    setFollowUpQuestions([]);
+  const handleCompleteMission = (id: string) => {
+    const mission = dailyMissions.find(m => m.id === id);
+    if (!mission || mission.isCompleted) return;
+
+    setDailyMissions(prev => prev.map(m => m.id === id ? { ...m, isCompleted: true } : m));
+    
+    const storedMission: StoredMission = {
+      id: `mission-log-${Date.now()}`,
+      activityType: 'MISSION',
+      timestamp: Date.now(),
+      title: mission.title,
+      missionType: mission.type,
+      url: mission.url,
+      source: mission.source,
+      xpAwarded: mission.xpAwarded
+    };
+
+    const newHistory = [storedMission, ...history];
+    setHistory(newHistory);
+    localStorage.setItem('pm_coach_history', JSON.stringify(newHistory));
+  };
+
+  const handleUpdateUser = (updates: Partial<User>) => {
+    if (!user) return;
+    const updated = { ...user, ...updates };
+    setUser(updated);
+    localStorage.setItem('pm_coach_personal_user', JSON.stringify(updated));
+  };
+
+  const handleClearHistory = () => {
+    setHistory([]);
+    localStorage.removeItem('pm_coach_history');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('pm_app_access_token');
+    setIsAuthorized(false);
   };
 
   if (isAuthLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+        <div className="animate-pulse text-indigo-500 font-black tracking-widest text-sm uppercase">Loading Secure Env...</div>
       </div>
     );
   }
@@ -225,135 +259,241 @@ const App: React.FC = () => {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <Header 
-        user={user}
+        user={user} 
         onShowHistory={() => setPhase('history')} 
         onShowHome={() => setPhase('config')} 
         onShowSettings={() => setPhase('settings')}
-        onLogout={() => {}} 
+        onLogout={handleLogout}
       />
-      
+
       <Container>
+        {phase === 'config' && (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+              <div className="space-y-2">
+                <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-slate-900">
+                  Ready to <span className="text-indigo-600">Scale</span>, {user.name.split(' ')[0]}?
+                </h1>
+                <p className="text-slate-500 font-medium text-lg">Pick a track and build your staff-level presence.</p>
+              </div>
+              <button 
+                onClick={handleStartCustom}
+                className="bg-white border-2 border-slate-200 text-slate-600 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:border-indigo-600 hover:text-indigo-600 transition shadow-sm"
+              >
+                Custom Case
+              </button>
+            </div>
+
+            <MissionFeed 
+              missions={dailyMissions} 
+              onComplete={handleCompleteMission} 
+              isLoading={isMissionsLoading}
+              onRefresh={fetchMissions}
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+              <button 
+                onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)}
+                className="group relative bg-white p-10 rounded-[3rem] border-2 border-slate-100 hover:border-indigo-600 transition-all text-left overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-1"
+              >
+                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                   <svg className="w-24 h-24 text-indigo-600" fill="currentColor" viewBox="0 0 24 24">
+                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                   </svg>
+                </div>
+                <div className="relative z-10">
+                  <div className="bg-indigo-50 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">Product Sense</h3>
+                  <p className="text-slate-500 font-semibold leading-relaxed">Master the art of ambiguous design. Focus on user empathy, visionary thinking, and strategic moats.</p>
+                  <div className="mt-8 flex items-center text-indigo-600 font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                    Start Session <svg className="w-3 h-3 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                  </div>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)}
+                className="group relative bg-white p-10 rounded-[3rem] border-2 border-slate-100 hover:border-emerald-600 transition-all text-left overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-1"
+              >
+                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                   <svg className="w-24 h-24 text-emerald-600" fill="currentColor" viewBox="0 0 24 24">
+                     <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
+                   </svg>
+                </div>
+                <div className="relative z-10">
+                  <div className="bg-emerald-50 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors duration-300">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">Analytical Thinking</h3>
+                  <p className="text-slate-500 font-semibold leading-relaxed">Crush metrics and execution. Focus on root cause analysis, KPI definitions, and ruthless prioritization.</p>
+                  <div className="mt-8 flex items-center text-emerald-600 font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                    Start Session <svg className="w-3 h-3 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {phase === 'custom-input' && (
+          <CustomQuestionInput 
+            onStart={handleCustomQuestion} 
+            onCancel={() => setPhase('config')} 
+          />
+        )}
+
+        {phase === 'question' && currentQuestion && (
+          <div className="max-w-3xl mx-auto py-12 text-center space-y-12 animate-in fade-in zoom-in-95 duration-500">
+            <div className="space-y-4">
+              <span className="bg-indigo-600 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg shadow-indigo-200">
+                Phase 1: The Brief
+              </span>
+              <h2 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter leading-tight">
+                {currentQuestion.text}
+              </h2>
+              {currentQuestion.hint && (
+                <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl max-w-xl mx-auto mt-6">
+                   <p className="text-xs text-amber-800 font-bold leading-relaxed">
+                     <span className="uppercase tracking-widest mr-2">Coach's Tip:</span> {currentQuestion.hint}
+                   </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col items-center space-y-6">
+              <button 
+                onClick={() => setPhase('recording')}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 px-16 rounded-[2rem] shadow-2xl shadow-indigo-200 transition-all transform hover:scale-105 active:scale-95 text-xl uppercase tracking-widest"
+              >
+                Begin My Response
+              </button>
+              <button 
+                onClick={() => setPhase('config')}
+                className="text-slate-400 hover:text-slate-600 font-bold text-sm transition"
+              >
+                Choose another question
+              </button>
+            </div>
+          </div>
+        )}
+
+        {phase === 'recording' && (
+          <div className="max-w-4xl mx-auto space-y-10">
+            <div className="text-center space-y-4">
+               <h3 className="text-2xl font-black text-slate-900 tracking-tight">{currentQuestion?.text}</h3>
+               <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Speak clearly. We are recording for deep analysis.</p>
+            </div>
+            <Recorder 
+              onStop={handleStopRecording} 
+              onCancel={() => setPhase('config')} 
+              isProcessing={isProcessing}
+            />
+          </div>
+        )}
+
+        {phase === 'grilling' && (
+          <div className="max-w-3xl mx-auto py-12 text-center space-y-12 animate-in fade-in zoom-in-95 duration-500">
+            <div className="space-y-6">
+              <span className="bg-rose-600 text-white text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-lg shadow-rose-200">
+                Phase 2: The Grill
+              </span>
+              <h2 className="text-3xl font-black text-slate-900 tracking-tight">
+                Excellent foundation. Now, defend your position:
+              </h2>
+              <div className="space-y-4 pt-4">
+                {followUpQuestions.map((q, i) => (
+                  <div key={i} className="p-6 bg-white border-2 border-slate-100 rounded-3xl shadow-sm">
+                    <p className="text-lg font-bold text-slate-800 italic">"{q}"</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center space-y-6">
+              <button 
+                onClick={() => setPhase('recording-followup')}
+                className="bg-rose-600 hover:bg-rose-700 text-white font-black py-6 px-16 rounded-[2rem] shadow-2xl shadow-rose-200 transition-all transform hover:scale-105 active:scale-95 text-xl uppercase tracking-widest"
+              >
+                Defend My Logic
+              </button>
+            </div>
+          </div>
+        )}
+
+        {phase === 'recording-followup' && (
+          <div className="max-w-4xl mx-auto space-y-10">
+            <div className="text-center space-y-4">
+               <h3 className="text-2xl font-black text-slate-900 tracking-tight">Defend Your Position</h3>
+               <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest">Address the follow-up questions with conviction.</p>
+            </div>
+            <Recorder 
+              onStop={handleStopFollowUp} 
+              onCancel={() => setPhase('config')} 
+              isProcessing={isProcessing}
+            />
+          </div>
+        )}
+
+        {phase === 'analyzing' && (
+          <div className="flex flex-col items-center justify-center py-24 space-y-8">
+            <div className="relative">
+               <div className="w-24 h-24 border-8 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+               <div className="absolute inset-0 flex items-center justify-center">
+                 <svg className="w-8 h-8 text-indigo-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                 </svg>
+               </div>
+            </div>
+            <div className="text-center space-y-3">
+              <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Gemini is Processing...</h3>
+              <p className="text-slate-500 font-bold max-w-xs mx-auto animate-pulse">Running full-spectrum executive audit on your communication, logic, and strategic depth.</p>
+            </div>
+          </div>
+        )}
+
+        {phase === 'result' && result && (
+          <FeedbackView 
+            result={result} 
+            onReset={() => setPhase('config')} 
+            isProductSense={currentQuestion?.type === InterviewType.PRODUCT_SENSE}
+          />
+        )}
+
+        {phase === 'history' && (
+          <HistoryList 
+            history={history} 
+            onSelect={(item) => {
+              setResult(item.result);
+              setCurrentQuestion({
+                id: item.id,
+                type: item.type,
+                text: item.questionTitle
+              });
+              setPhase('result');
+            }} 
+            onClear={handleClearHistory}
+          />
+        )}
+
         {phase === 'settings' && (
           <SettingsView 
             user={user} 
-            onUpdate={(u) => setUser({...user, ...u})} 
-            onDeleteAccount={() => { localStorage.clear(); window.location.reload(); }}
+            onUpdate={handleUpdateUser} 
+            onDeleteAccount={() => {
+              localStorage.clear();
+              window.location.reload();
+            }}
             onBack={() => setPhase('config')}
           />
         )}
-        
-        {phase === 'config' && (
-          <div className="space-y-12 animate-in fade-in zoom-in-95 duration-500">
-            {/* Career Progress Dashboard */}
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl -mr-32 -mt-32 opacity-40"></div>
-              <div className="relative z-10 w-32 h-32 rounded-3xl bg-indigo-600 shadow-2xl shadow-indigo-200 flex items-center justify-center transform -rotate-3 transition hover:rotate-0 duration-300">
-                <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=${user.avatarSeed}`} alt="Avatar" className="w-24 h-24" />
-              </div>
-              <div className="flex-1 space-y-4 relative z-10 text-center md:text-left">
-                <div>
-                  <h2 className="text-3xl font-black text-slate-900 tracking-tight">Level {stats.level} Product Leader</h2>
-                  <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em]">{stats.totalXP.toLocaleString()} Total XP Earned</p>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-end text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <span>Progress to Level {stats.level + 1}</span>
-                    <span>{Math.round(stats.currentLevelXP)} / 1000 XP</span>
-                  </div>
-                  <div className="h-4 bg-slate-100 rounded-full overflow-hidden border border-slate-200 relative p-1">
-                    <div className="h-full bg-indigo-600 rounded-full transition-all duration-1000 progress-bar-glow" style={{ width: `${stats.progress}%` }}></div>
-                  </div>
-                </div>
-              </div>
-              <div className="relative z-10 md:pl-8 md:border-l border-slate-100">
-                <button onClick={handleCloudSync} disabled={isSyncing} className={`flex flex-col items-center justify-center p-6 rounded-3xl border-2 transition-all group ${isSyncing ? 'bg-slate-50 border-slate-200' : 'bg-white border-slate-100 hover:border-indigo-600 hover:shadow-lg'}`}>
-                  <svg className={`w-8 h-8 mb-2 ${isSyncing ? 'animate-spin text-slate-400' : 'text-indigo-600 group-hover:scale-110 transition-transform'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">
-                    {isSyncing ? 'Syncing...' : 'Manual Sync'}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <div className="text-center space-y-4">
-               <h3 className="text-2xl font-black text-slate-900 tracking-tight">Daily Missions</h3>
-               <p className="text-slate-500 font-medium">Choose a focus area to sharpen your PM instincts.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-10">
-              <button onClick={() => startInterview(InterviewType.PRODUCT_SENSE)} className="group bg-white p-8 rounded-[2.5rem] border border-slate-200 hover:border-indigo-500 transition-all hover:shadow-2xl hover:-translate-y-2 text-left relative overflow-hidden">
-                <div className="absolute -right-8 -bottom-8 text-8xl opacity-5 group-hover:opacity-10 transition-opacity">💡</div>
-                <div className="bg-indigo-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-black mb-2 text-slate-900">Product Sense</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">Design thinking, user personas, and visionary roadmapping sessions.</p>
-              </button>
-              <button onClick={() => startInterview(InterviewType.ANALYTICAL_THINKING)} className="group bg-white p-8 rounded-[2.5rem] border border-slate-200 hover:border-emerald-500 transition-all hover:shadow-2xl hover:-translate-y-2 text-left relative overflow-hidden">
-                <div className="absolute -right-8 -bottom-8 text-8xl opacity-5 group-hover:opacity-10 transition-opacity">📊</div>
-                <div className="bg-emerald-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-black mb-2 text-slate-900">Execution</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">Metrics, root cause analysis, and data-driven prioritization missions.</p>
-              </button>
-              <button onClick={() => setPhase('custom-input')} className="group bg-white p-8 rounded-[2.5rem] border border-slate-200 hover:border-amber-500 transition-all hover:shadow-2xl hover:-translate-y-2 text-left relative overflow-hidden">
-                <div className="absolute -right-8 -bottom-8 text-8xl opacity-5 group-hover:opacity-10 transition-opacity">🖋️</div>
-                <div className="bg-amber-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </div>
-                <h3 className="text-2xl font-black mb-2 text-slate-900">Custom Quest</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">Enter your own interview prompt or specific case study to practice.</p>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {phase === 'custom-input' && <CustomQuestionInput onStart={startCustomInterview} onCancel={() => setPhase('config')} />}
-
-        {(phase === 'question' || phase === 'analyzing') && currentQuestion && (
-          <div className="max-w-2xl mx-auto space-y-12 py-10">
-            <h2 className="text-3xl font-black text-center text-slate-900">{currentQuestion.text}</h2>
-            <Recorder onStop={handleInitialRecordingStop} onCancel={() => setPhase('config')} isProcessing={isProcessing} />
-          </div>
-        )}
-
-        {phase === 'grilling' && followUpQuestions.length > 0 && (
-          <div className="max-w-2xl mx-auto space-y-12 py-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
-            <div className="text-center space-y-4">
-              <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest inline-block">The Grill</span>
-              <h2 className="text-3xl font-black text-slate-900 tracking-tight">Defend Your Position</h2>
-              <p className="text-slate-500 font-medium">The VP has concerns about your approach. Answer these specifically.</p>
-            </div>
-            
-            <div className="bg-slate-900 text-white p-8 rounded-[2rem] border border-slate-800 shadow-2xl space-y-6">
-              {followUpQuestions.map((q, idx) => (
-                <div key={idx} className="flex space-x-4 group">
-                  <span className="text-indigo-500 font-black text-lg">{idx + 1}.</span>
-                  <p className="text-lg font-bold leading-relaxed text-slate-200">{q}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="text-center py-4">
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-6">Record your defense (1-2 mins recommended)</p>
-              <Recorder onStop={handleGrillRecordingStop} onCancel={reset} isProcessing={isProcessing} />
-            </div>
-          </div>
-        )}
-
-        {phase === 'result' && result && <FeedbackView result={result} onReset={reset} isProductSense={selectedType === InterviewType.PRODUCT_SENSE} />}
-        {phase === 'history' && <HistoryList history={history} onSelect={(i) => {setResult(i.result); setPhase('result')}} onClear={() => {setHistory([]); localStorage.removeItem('pm_history_me'); }} />}
       </Container>
     </div>
   );

@@ -64,12 +64,37 @@ export interface InterviewResult {
   benchmarkResponse: string;
 }
 
+export interface KnowledgeMission {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  type: 'READING' | 'PODCAST' | 'VIDEO';
+  summary: string;
+  xpAwarded: number;
+  isCompleted?: boolean;
+}
+
 export interface StoredInterview {
   id: string;
+  activityType: 'INTERVIEW';
   timestamp: number;
   questionTitle: string;
   type: InterviewType;
   result: InterviewResult;
 }
+
+export interface StoredMission {
+  id: string;
+  activityType: 'MISSION';
+  timestamp: number;
+  title: string;
+  missionType: 'READING' | 'PODCAST' | 'VIDEO';
+  url: string;
+  source: string;
+  xpAwarded: number;
+}
+
+export type HistoryItem = StoredInterview | StoredMission;
 
 export type InterviewPhase = 'auth' | 'onboarding' | 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input';

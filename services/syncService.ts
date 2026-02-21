@@ -1,11 +1,19 @@
-
-import { StoredInterview, User } from '../types';
+import { StoredInterview, User } from '../types.ts';
 
 /**
  * CLIENT_ID is now pulled from environment variables.
- * On Vercel, add "GOOGLE_CLIENT_ID" to your Environment Variables.
  */
-const CLIENT_ID = (process.env as any).GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID'; 
+const getEnv = (name: string): string => {
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[name]) return process.env[name] as string;
+    const metaEnv = (import.meta as any).env;
+    if (metaEnv && metaEnv[name]) return metaEnv[name] as string;
+    if (metaEnv && metaEnv[`VITE_${name}`]) return metaEnv[`VITE_${name}`] as string;
+  } catch (e) {}
+  return '';
+};
+
+const CLIENT_ID = getEnv('GOOGLE_CLIENT_ID') || 'YOUR_GOOGLE_CLIENT_ID'; 
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 const DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
 const FILE_NAME = 'pm_coach_cloud_data.json';

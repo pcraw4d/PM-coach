@@ -1,27 +1,154 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { InterviewType, InterviewResult } from "../types";
+import { InterviewType, InterviewResult, KnowledgeMission } from "../types.ts";
 
 export class GeminiService {
   constructor() {}
 
+  /**
+   * Extremely robust JSON extraction.
+   * Cleans non-printable characters, markdown fences, and isolates JSON structures.
+   */
   private extractJson(text: string): any {
+    if (!text) return null;
+    
     try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+      // 1. Remove non-printable characters and control characters that break JSON.parse
+      // This includes BOM markers and weird AI-generated whitespaces
+      let cleaned = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
+      
+      // 2. Strip markdown code blocks
+      cleaned = cleaned.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
+      
+      // 3. Find structural boundaries
+      const firstArray = cleaned.indexOf('[');
+      const firstObject = cleaned.indexOf('{');
+      
+      let startIdx = -1;
+      let endIdx = -1;
+
+      // Prioritize the structure that appears first
+      if (firstArray !== -1 && (firstObject === -1 || firstArray < firstObject)) {
+        startIdx = firstArray;
+        endIdx = cleaned.lastIndexOf(']');
+      } else if (firstObject !== -1) {
+        startIdx = firstObject;
+        endIdx = cleaned.lastIndexOf('}');
       }
-      return JSON.parse(text);
+
+      if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+        // Fallback: Just try parsing the whole thing if no obvious boundaries found
+        return JSON.parse(cleaned);
+      }
+
+      const jsonCandidate = cleaned.substring(startIdx, endIdx + 1);
+      
+      // 4. Handle trailing commas which are a common AI output error
+      const fixedJson = jsonCandidate.replace(/,\s*([\]}])/g, '$1');
+      
+      return JSON.parse(fixedJson);
     } catch (e) {
-      console.error("Failed to parse JSON from response", text);
-      throw new Error("The AI returned an invalid response format. Please try again.");
+      console.error("GeminiService: Robust JSON extraction failed", { 
+        error: e, 
+        snippet: text.substring(0, 100),
+        fullText: text 
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Discovers recent high-quality PM content using Google Search grounding.
+   */
+  async discoverMissions(): Promise<KnowledgeMission[]> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const prompt = `
+      Perform a Google Search for exactly 4 RECENT (last 4 months) high-value Product Management resources.
+      SOURCES: Lenny's Newsletter, Exponent (YouTube), SVPG, Product Growth (Aakash Gupta), or Reforge.
+      
+      CATEGORIES TO FIND:
+      1. [VIDEO] One Senior PM Mock Interview (Exponent/YouTube).
+      2. [READING] One Strategic product thinking article.
+      3. [READING] One Execution/Metrics article.
+      4. [ANY] One trending AI Product Management piece.
+
+      STRICT OUTPUT FORMAT:
+      Return ONLY a JSON ARRAY. No conversation, no markdown fences.
+      [
+        {
+          "id": "slug-id",
+          "title": "Clear Title",
+          "source": "Site Name",
+          "url": "Valid HTTPS URL",
+          "type": "READING" | "VIDEO" | "PODCAST",
+          "summary": "1-sentence summary of value.",
+          "xpAwarded": 50
+        }
+      ]
+    `;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          temperature: 0.1 // Force deterministic output for JSON
+        }
+      });
+
+      const text = response.text || "";
+      const data = this.extractJson(text);
+
+      if (data && Array.isArray(data) && data.length > 0) {
+        return data.map((item: any) => ({
+          id: item.id || `mission-${crypto.randomUUID()}`,
+          title: item.title || "Untitled Insight",
+          source: item.source || "Industry Expert",
+          url: item.url || "#",
+          type: (['READING', 'VIDEO', 'PODCAST'].includes(item.type) ? item.type : 'READING') as any,
+          summary: item.summary || "Master advanced PM concepts with this resource.",
+          xpAwarded: Number(item.xpAwarded) || 50
+        }));
+      }
+      
+      throw new Error("Parsed data was not a valid array");
+    } catch (error) {
+      console.warn("Mission discovery failed, deploying curated fallback", error);
+      return [
+        {
+          id: 'fallback-lenny-strategy',
+          title: "The Hierarchy of Engagement",
+          source: "Lenny's Newsletter",
+          url: "https://www.lennysnewsletter.com/p/the-hierarchy-of-engagement",
+          type: 'READING',
+          summary: "Essential reading for understanding user retention at a Staff PM level.",
+          xpAwarded: 50
+        },
+        {
+          id: 'fallback-exponent-mock',
+          title: "Google PM Interview: Design a Parking Solution",
+          source: "Exponent",
+          url: "https://www.youtube.com/watch?v=S-t1W6N9x2c",
+          type: 'VIDEO',
+          summary: "A gold-standard demonstration of the Product Sense framework.",
+          xpAwarded: 75
+        },
+        {
+          id: 'fallback-cagan-purpose',
+          title: "The Purpose of Product Teams",
+          source: "Marty Cagan (SVPG)",
+          url: "https://www.svpg.com/the-purpose-of-product-teams/",
+          type: 'READING',
+          summary: "Distinguish between feature teams and truly empowered product teams.",
+          xpAwarded: 50
+        }
+      ];
     }
   }
 
   /**
    * Generates aggressive follow-up questions based on the initial transcript.
-   * Focuses on Staff PM level critiques: probing for logical inconsistencies, 
-   * surface-level thinking, and ignored technical/strategic risks.
    */
   async generateFollowUps(
     type: InterviewType,
@@ -32,49 +159,45 @@ export class GeminiService {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const prompt = `
-      ROLE: You are an elite, uncompromising VP of Product at a Tier-1 tech company. 
+      ROLE: You are an elite, uncompromising VP of Product.
       TASK:
-      1. Transcribe the candidate's response to the initial question: "${question}".
-      2. Identify 2-3 specific, difficult, and aggressive follow-up questions ("The Grill") based on their answer.
-
-      CRITERIA FOR FOLLOW-UPS (STAFF PM LEVEL):
-      - PROBE STRATEGIC ASSUMPTIONS: Tailor the questions to probe for the underlying strategic assumptions the candidate made. Don't let them hide behind vague "user-centricity."
-      - FORCE EXPLICIT TRADE-OFFS: Demand they articulate the "losing side" of their proposal. If they picked A, why is the risk of NOT doing B acceptable?
-      - PROBE LOGIC & INCONSISTENCY: Hunt for logical gaps, "magic wand" assumptions, or hand-waving in their proposed solution.
-      - HUNT FOR SURFACE THINKING: Identify where the candidate stayed at the execution surface and push them into systemic/Staff-level territory (e.g., ecosystem impact, technical debt, or long-term moats).
-      - RISKS: Specifically probe for ignored strategic or technical risks like market cannibalization, regulatory friction, or scalability bottlenecks.
+      1. Transcribe the candidate's response to: "${question}".
+      2. Identify 2-3 aggressive, Staff-level follow-up questions to test their resilience.
       
-      TONE: Peer-level, skeptical, and intensely focused on high-stakes business impact. Frame the questions as a Staff PM would be challenged by an executive.
-
-      Return ONLY JSON in this format:
+      Return ONLY valid JSON:
       {
-        "transcription": "the full transcript...",
-        "followUpQuestions": ["Skeptical strategic question 1?", "Logical challenge 2?"]
+        "transcription": "...",
+        "followUpQuestions": ["...", "..."]
       }
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: {
-        parts: [
-          { inlineData: { data: audioBase64, mimeType } },
-          { text: prompt }
-        ]
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            transcription: { type: Type.STRING },
-            followUpQuestions: { type: Type.ARRAY, items: { type: Type.STRING } }
-          },
-          required: ["transcription", "followUpQuestions"]
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: {
+          parts: [
+            { inlineData: { data: audioBase64, mimeType } },
+            { text: prompt }
+          ]
+        },
+        config: { 
+          responseMimeType: "application/json" 
         }
-      }
-    });
+      });
 
-    return this.extractJson(response.text);
+      const data = this.extractJson(response.text);
+      if (!data) throw new Error("Could not extract follow-up JSON");
+      return data;
+    } catch (err) {
+      console.error("Follow-up generation failed", err);
+      return {
+        transcription: "Transcription failed, but please defend your position based on your previous answer.",
+        followUpQuestions: [
+          "What are the major strategic trade-offs of your proposed solution?",
+          "How would you measure success for this initiative at a $100M ARR scale?"
+        ]
+      };
+    }
   }
 
   /**
@@ -90,136 +213,46 @@ export class GeminiService {
   ): Promise<InterviewResult> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const systemInstruction = `You are an Uncompromising VP of Product at a Tier-1 Tech Giant, evaluating candidates for Principal/Staff level Product Manager roles ($500k+ compensation band). Your bar is exceptionally high. Your feedback style is 'tough love' – surgically precise, logical, and devoid of generic platitudes. 
-
-Your feedback MUST be hyper-actionable and granular. For every weakness identified, you must provide a concrete, step-by-step 'How-To' guide to fix it. Do not give generic advice. 
-
-Every 'Improvement Item' MUST follow this format in the 'howTo' field:
-1. PHASED STEPS: A numbered list of 3-4 specific tactical actions.
-2. CONCRETE EXAMPLE: A "Before vs. After" comparison or a specific script ("Instead of saying X, say Y because...") that illustrates the improvement.
-3. PRACTICE DRILL: A 5-minute exercise the candidate can do immediately.
-
-Focus intensely on:
-- Differentiating a truly elite Staff PM from a Senior PM (systemic thinking vs. execution).
-- Strategic flexibility and adaptation during 'The Grill.'
-- Synthesis of complex information and identification of critical trade-offs.
-- Awareness of second-order effects and unintended consequences.
-
-Every 'Improvement Item' MUST include estimated Effort and Impact ratings. Avoid framework mentions; focus on underlying leadership principles.`;
+    const systemInstruction = `You are a VP of Product at a Tier-1 tech giant. Evaluate for a Staff PM role. 
+    Feedback must be granular, aggressive, and actionable. 
+    Every improvement item must include Phased Steps, Concrete Examples, and a Practice Drill.`;
 
     const prompt = `
-      EVALUATE FULL SESSION FOR ACTIONABLE GROWTH:
-      
-      CONTEXT:
-      - Initial Question: "${question}"
-      - Initial Response Transcript: "${initialTranscript}"
-      
-      "THE GRILL" (FOLLOW-UP CHALLENGES):
-      ${followUpQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
-      
-      AUDIO SOURCE: The attached audio contains the candidate's direct defense against these specific "Grill" questions.
+      EVALUATE FULL SESSION:
+      - Question: "${question}"
+      - Initial Answer: "${initialTranscript}"
+      - FOLLOW-UP DEFENSE: (Attached Audio)
 
-      ANALYSIS MANDATE:
-      1. CRITICAL DEFENSE EVALUATION: How did they handle the pressure? Did they pivot strategy effectively or double down on flaws?
-      2. STAFF PM DIFFERENTIATION: Where was their thinking execution-only vs. systemic?
-      3. EXECUTIVE PRESENCE: Logic consistency under fire.
-      4. STRATEGIC FLEXIBILITY: Ability to iterate based on new constraints.
-      5. SYSTEMIC DEPTH: Grasp of 2nd order effects.
-
-      OUTPUT REQUIREMENTS:
-      - overallScore: Critical rating 0-100.
-      - benchmarkResponse: Gold-standard response for the whole session.
-      - rubricScores: Logic-first category scores.
-      - strengths/weaknesses: High-resolution signals.
-      - improvementItems: For EVERY weakness, provide a concrete improvement item. Each MUST have:
-          - action: The high-level objective.
-          - whyItMatters: The strategic or Staff PM context.
-          - howTo: A DETAILED, actionable step-by-step guide with concrete "Before/After" examples and specific scripts to practice.
-          - effort/impact: Categorized as Low, Medium, or High.
-
-      Provide the analysis in the specified JSON format.
+      Provide a detailed JSON analysis with: overallScore (0-100), rubricScores, strengths, weaknesses, improvementItems, communicationAnalysis, and benchmarkResponse.
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: {
-        parts: [
-          { inlineData: { data: followUpAudioBase64, mimeType } },
-          { text: prompt }
-        ]
-      },
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            overallScore: { type: Type.NUMBER },
-            followUpTranscription: { type: Type.STRING },
-            benchmarkResponse: { type: Type.STRING },
-            rubricScores: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  category: { type: Type.STRING },
-                  score: { type: Type.NUMBER },
-                  reasoning: { type: Type.STRING }
-                },
-                required: ["category", "score", "reasoning"]
-              }
-            },
-            communicationAnalysis: {
-              type: Type.OBJECT,
-              properties: {
-                tone: { type: Type.STRING },
-                confidenceScore: { type: Type.NUMBER },
-                clarityScore: { type: Type.NUMBER },
-                overallAssessment: { type: Type.STRING, enum: ["Strong", "Average", "Needs Work"] },
-                summary: { type: Type.STRING }
-              },
-              required: ["tone", "confidenceScore", "clarityScore", "overallAssessment", "summary"]
-            },
-            strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-            weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
-            improvementItems: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  category: { type: Type.STRING },
-                  action: { type: Type.STRING },
-                  howTo: { type: Type.STRING, description: "Numbered tactical steps + Concrete example script + Practice drill." },
-                  whyItMatters: { type: Type.STRING, description: "Strategic context on why this specific skill is critical for Staff PM roles." },
-                  effort: { type: Type.STRING, enum: ["Low", "Medium", "High"] },
-                  impact: { type: Type.STRING, enum: ["Low", "Medium", "High"] }
-                },
-                required: ["category", "action", "howTo", "whyItMatters", "effort", "impact"]
-              }
-            },
-            recommendedResources: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  url: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ["reading", "video"] }
-                }
-              }
-            }
-          },
-          required: ["overallScore", "followUpTranscription", "rubricScores", "communicationAnalysis", "strengths", "weaknesses", "improvementItems", "recommendedResources", "benchmarkResponse"]
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: {
+          parts: [
+            { inlineData: { data: followUpAudioBase64, mimeType } },
+            { text: prompt }
+          ]
+        },
+        config: { 
+          systemInstruction,
+          responseMimeType: "application/json"
         }
-      }
-    });
+      });
 
-    const finalJson = this.extractJson(response.text);
-    return {
-      ...finalJson,
-      transcription: initialTranscript,
-      followUpQuestions
-    };
+      const finalJson = this.extractJson(response.text);
+      if (!finalJson) throw new Error("Final analysis JSON parsing failed");
+
+      return {
+        ...finalJson,
+        transcription: initialTranscript,
+        followUpQuestions
+      };
+    } catch (err) {
+      console.error("Final analysis failed", err);
+      throw err;
+    }
   }
 }
 

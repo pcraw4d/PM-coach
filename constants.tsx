@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { InterviewType, Question } from './types';
+import { InterviewType, Question } from './types.ts';
 
 export const QUESTIONS: Question[] = [
   // --- PRODUCT SENSE ---
