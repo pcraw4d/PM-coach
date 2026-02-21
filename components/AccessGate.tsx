@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 
 interface AccessGateProps {
   onGrantAccess: () => void;
@@ -9,10 +9,21 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState(false);
 
-  const expectedKey = (process.env as any).ACCESS_KEY;
+  // Memoize expected key to detect if it's missing from environment
+  const expectedKey = useMemo(() => {
+    return typeof process !== 'undefined' ? (process.env as any).ACCESS_KEY : null;
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Safety check: Don't allow empty bypass if environment key is missing
+    if (!expectedKey) {
+       setError(true);
+       alert("Security configuration missing. Please ensure ACCESS_KEY is set in Vercel.");
+       return;
+    }
+
     if (passcode === expectedKey) {
       localStorage.setItem('pm_app_access_token', passcode);
       onGrantAccess();
@@ -32,7 +43,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
           <div className="relative z-10 flex flex-col items-center text-center space-y-8">
             <div className="w-20 h-20 bg-indigo-500/10 border border-indigo-500/20 rounded-3xl flex items-center justify-center shadow-inner">
               <svg className="w-10 h-10 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
 
@@ -43,32 +54,41 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="w-full space-y-4">
-              <div className="relative">
-                <input
-                  type="password"
-                  value={passcode}
-                  onChange={(e) => setPasscode(e.target.value)}
-                  placeholder="Enter Access Key"
-                  autoFocus
-                  className={`w-full bg-slate-800/50 border ${
-                    error ? 'border-rose-500 animate-shake' : 'border-slate-700'
-                  } text-white px-6 py-5 rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-center tracking-widest placeholder:text-slate-600 placeholder:font-sans placeholder:tracking-normal`}
-                />
-                {error && (
-                  <p className="text-rose-500 text-[10px] font-black uppercase tracking-widest mt-2">
-                    Invalid Key
-                  </p>
-                )}
+            {!expectedKey ? (
+              <div className="w-full p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                <p className="text-rose-400 text-xs font-bold leading-relaxed">
+                   ⚠️ SYSTEM ERROR: <br/>
+                   ACCESS_KEY environment variable not found. Check your Vercel Dashboard Settings.
+                </p>
               </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="w-full space-y-4">
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={passcode}
+                    onChange={(e) => setPasscode(e.target.value)}
+                    placeholder="Enter Access Key"
+                    autoFocus
+                    className={`w-full bg-slate-800/50 border ${
+                      error ? 'border-rose-500 animate-shake' : 'border-slate-700'
+                    } text-white px-6 py-5 rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-center tracking-widest placeholder:text-slate-600 placeholder:font-sans placeholder:tracking-normal`}
+                  />
+                  {error && (
+                    <p className="text-rose-500 text-[10px] font-black uppercase tracking-widest mt-2">
+                      Invalid Key
+                    </p>
+                  )}
+                </div>
 
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-lg shadow-indigo-900/20 transition-all active:scale-95 uppercase tracking-widest text-xs"
-              >
-                Unlock Repository
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-5 rounded-2xl shadow-lg shadow-indigo-900/20 transition-all active:scale-95 uppercase tracking-widest text-xs"
+                >
+                  Unlock Repository
+                </button>
+              </form>
+            )}
             
             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-[0.2em] pt-4">
               Authorized Personnel Only

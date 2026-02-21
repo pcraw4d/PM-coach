@@ -14,6 +14,7 @@ import { syncService } from './services/syncService.ts';
 
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [user, setUser] = useState<User | null>(null);
   const [phase, setPhase] = useState<InterviewPhase>('config');
   const [selectedType, setSelectedType] = useState<InterviewType | null>(null);
@@ -25,19 +26,20 @@ const App: React.FC = () => {
 
   // Security & Authorization Check
   useEffect(() => {
-    // Safety check for environment variables in the browser
-    const accessKey = typeof process !== 'undefined' ? (process.env as any).ACCESS_KEY : null;
+    const checkAuth = async () => {
+      // Small delay to ensure process.env shim is ready if injected late
+      const accessKey = typeof process !== 'undefined' ? (process.env as any).ACCESS_KEY : null;
+      const savedToken = localStorage.getItem('pm_app_access_token');
+      
+      // Strict authorization: Only authorize if saved token matches defined key
+      if (accessKey && savedToken === accessKey) {
+        setIsAuthorized(true);
+      }
+      
+      setIsAuthLoading(false);
+    };
     
-    // If no access key is configured in env, allow access (local dev mode)
-    if (!accessKey) {
-      setIsAuthorized(true);
-      return;
-    }
-
-    const savedToken = localStorage.getItem('pm_app_access_token');
-    if (savedToken === accessKey) {
-      setIsAuthorized(true);
-    }
+    checkAuth();
   }, []);
 
   // Initialize single user
@@ -102,18 +104,10 @@ const App: React.FC = () => {
       });
       setUser(synced.user);
       setHistory(synced.history);
-      alert("Cloud Sync Successful! Your progress is now consistent across devices.");
+      alert("Cloud Sync Successful!");
     } catch (err: any) {
       console.error(err);
-      const origin = window.location.origin;
-      
-      if (err.message && err.message.includes("Client ID not configured")) {
-        alert(`Setup Required: Please add GOOGLE_CLIENT_ID to your Vercel environment variables.`);
-      } else if (err.error === 'idpiframe_initialization_failed' || (err.details && err.details.includes('origin'))) {
-        alert(`Google Sync Error: This URL (${origin}) is not authorized. \n\nPlease add "${origin}" to your Google Cloud Console "Authorized JavaScript origins".`);
-      } else {
-        alert(`Sync Failed: Please ensure popups are enabled and you are using HTTPS. (Error: ${err.error || 'Unknown'})`);
-      }
+      alert(`Sync Failed: ${err.message || 'Check your Google Cloud configuration'}`);
     } finally {
       setIsSyncing(false);
     }
@@ -175,6 +169,16 @@ const App: React.FC = () => {
     setResult(null);
   };
 
+  // 1. Loading state to prevent "Gate Flicker"
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // 2. Gatekeeper
   if (!isAuthorized) {
     return <AccessGate onGrantAccess={() => setIsAuthorized(true)} />;
   }
