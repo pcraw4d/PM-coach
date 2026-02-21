@@ -9,23 +9,22 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState(false);
 
-  // Memoize expected key to detect if it's missing from environment
-  const expectedKey = useMemo(() => {
-    // Attempt to find the key in the process.env shim
-    return (typeof process !== 'undefined' && (process.env as any).ACCESS_KEY) || null;
+  // Use a variety of possible env names to catch different bundler configs
+  const isEnvConfigured = useMemo(() => {
+    const env = (window as any).process?.env || {};
+    return !!(env.ACCESS_KEY || env.VITE_ACCESS_KEY || env.REACT_APP_ACCESS_KEY);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Safety check: If the key is missing from environment, the gate cannot validate successfully.
-    if (!expectedKey) {
-       setError(true);
-       console.error("ACCESS_KEY is missing from process.env. Ensure it is set in Vercel.");
-       return;
-    }
+    // We use a direct literal check here. 
+    // This allows bundlers to 'bake in' the value during build time.
+    const masterKey = (process.env as any).ACCESS_KEY || 
+                      (process.env as any).VITE_ACCESS_KEY || 
+                      (process.env as any).REACT_APP_ACCESS_KEY;
 
-    if (passcode === expectedKey) {
+    if (passcode && passcode === masterKey) {
       localStorage.setItem('pm_app_access_token', passcode);
       onGrantAccess();
     } else {
@@ -69,7 +68,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
                 />
                 {error && (
                   <p className="text-rose-500 text-[10px] font-black uppercase tracking-widest mt-2">
-                    {expectedKey ? 'Invalid Key' : 'System Configuration Error'}
+                    Access Denied
                   </p>
                 )}
               </div>
@@ -82,11 +81,10 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
               </button>
             </form>
 
-            {!expectedKey && (
-              <div className="w-full p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 mt-4">
-                <p className="text-rose-400 text-[10px] font-bold leading-relaxed">
-                   ⚠️ ACCESS_KEY not detected in browser. <br/>
-                   Verify your Vercel Environment Variables and <strong>redeploy</strong> your project to apply changes.
+            {!isEnvConfigured && (
+              <div className="w-full p-4 rounded-2xl bg-slate-800/50 border border-slate-700/50 mt-4">
+                <p className="text-slate-400 text-[9px] font-bold leading-relaxed uppercase tracking-wider">
+                   Note: If your key fails, ensure you have <strong>redeployed</strong> in Vercel after adding the variable.
                 </p>
               </div>
             )}

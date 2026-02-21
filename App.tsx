@@ -27,12 +27,15 @@ const App: React.FC = () => {
   // Security & Authorization Check
   useEffect(() => {
     const checkAuth = async () => {
-      // Small delay to ensure process.env shim is ready if injected late
-      const accessKey = typeof process !== 'undefined' ? (process.env as any).ACCESS_KEY : null;
+      // Use literal references for bundler replacement
+      const envKey = (process.env as any).ACCESS_KEY || 
+                     (process.env as any).VITE_ACCESS_KEY || 
+                     (process.env as any).REACT_APP_ACCESS_KEY;
+                     
       const savedToken = localStorage.getItem('pm_app_access_token');
       
-      // Strict authorization: Only authorize if saved token matches defined key
-      if (accessKey && savedToken === accessKey) {
+      // If we have a saved token and it matches the current environment key, authorize immediately
+      if (envKey && savedToken === envKey) {
         setIsAuthorized(true);
       }
       
