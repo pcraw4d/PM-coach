@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 
 interface AccessGateProps {
   onGrantAccess: () => void;
@@ -8,28 +8,26 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState(false);
 
-  // Helper to clean environment variables (handles cases where bundlers include literal quotes)
   const cleanKey = (key: any): string => {
     if (!key || typeof key !== 'string') return '';
-    // Aggressively remove quotes and hidden characters
     return key.replace(/['"\r\n\t]/g, '').trim();
   };
 
   const configuredKeys = useMemo(() => {
-    const env = (import.meta as any).env || {};
-    const proc = typeof process !== 'undefined' ? process.env : {};
+    // Robust environment detection
+    const env = (window as any).importMetaEnv || (import.meta as any).env || {};
+    const proc = (typeof process !== 'undefined' && process.env) ? process.env : {};
     
     const keys = new Set<string>();
     
-    // Specifically look for the PM Coach access variables
     [
       env.VITE_ACCESS_KEY,
-      proc?.VITE_ACCESS_KEY,
+      proc.VITE_ACCESS_KEY,
       env.ACCESS_KEY,
-      proc?.ACCESS_KEY
+      proc.ACCESS_KEY
     ].forEach(k => {
       const cleaned = cleanKey(k);
-      if (cleaned && cleaned !== 'undefined') {
+      if (cleaned && cleaned !== 'undefined' && cleaned !== 'null') {
         keys.add(cleaned);
       }
     });
@@ -41,18 +39,14 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
     const trimmedInput = input.trim();
     const TEST_BYPASS = 'pm-coach-local-test';
 
-    // Priority 1: Absolute Bypass
     if (trimmedInput === TEST_BYPASS) {
-      console.log("[Vault] Access granted via test bypass.");
       localStorage.setItem('pm_app_access_token', TEST_BYPASS);
       onGrantAccess();
       return true;
     }
 
-    // Priority 2: Configured Keys
     const matchesEnv = configuredKeys.some(key => trimmedInput === key);
     if (matchesEnv) {
-      console.log("[Vault] Access granted via environment key.");
       localStorage.setItem('pm_app_access_token', trimmedInput);
       onGrantAccess();
       return true;
@@ -67,7 +61,6 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
 
     if (!validateAndGrant(passcode)) {
       setError(true);
-      console.error("[Vault] Access Denied: Key mismatch.");
       setTimeout(() => setError(false), 2000);
     }
   };
@@ -75,7 +68,6 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
   const handleQuickBypass = () => {
     const key = 'pm-coach-local-test';
     setPasscode(key);
-    // Short delay to show the input filling before redirecting
     setTimeout(() => validateAndGrant(key), 300);
   };
 
@@ -132,6 +124,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({ onGrantAccess }) => {
                   <p>
                     2. Preview bypass: 
                     <button 
+                      type="button"
                       onClick={handleQuickBypass}
                       className="ml-1 px-2 py-0.5 bg-amber-500 text-slate-900 rounded font-black hover:bg-amber-400 transition cursor-pointer"
                     >

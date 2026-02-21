@@ -35,28 +35,16 @@ const App: React.FC = () => {
         return;
       }
 
-      const clean = (key: any): string => {
-        if (!key || typeof key !== 'string') return '';
-        return key.replace(/['"\r\n\t]/g, '').trim();
-      };
-
-      const env = (import.meta as any).env || {};
-      const proc = typeof process !== 'undefined' ? process.env : {};
-
-      const vKey = clean(env.VITE_ACCESS_KEY);
-      const aKey = clean(env.ACCESS_KEY);
-      const pVKey = clean(proc.VITE_ACCESS_KEY);
-      const pAKey = clean(proc.ACCESS_KEY);
-
-      const matchesEnv = 
-        (vKey && savedToken === vKey) || 
-        (aKey && savedToken === aKey) ||
-        (pVKey && savedToken === pVKey) ||
-        (pAKey && savedToken === pAKey);
-
+      // Standard test key logic
       const isLocalTestKey = savedToken === 'pm-coach-local-test';
-
-      if (matchesEnv || isLocalTestKey) {
+      
+      // Try to read environment variables safely
+      const env = (import.meta as any).env || {};
+      const proc = (typeof process !== 'undefined' && process.env) ? process.env : {};
+      
+      const vKey = env.VITE_ACCESS_KEY || env.ACCESS_KEY || proc.VITE_ACCESS_KEY || proc.ACCESS_KEY;
+      
+      if (isLocalTestKey || (vKey && savedToken === vKey)) {
         setIsAuthorized(true);
       } else {
         localStorage.removeItem('pm_app_access_token');
