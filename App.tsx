@@ -12,11 +12,15 @@ import { InterviewType, Question, InterviewPhase, InterviewResult, HistoryItem, 
 import { QUESTIONS } from './constants.tsx';
 import { geminiService } from './services/geminiService.ts';
 
+// Phase 4: Match plan loading stages exactly
+type LoadingStage = 'UPLOADING_AUDIO' | 'TRANSCRIBING' | 'GENERATING_LOGIC' | 'FINALIZING_AUDIT' | 'SEARCHING_RESOURCES';
+
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [user, setUser] = useState<User | null>(null);
   const [phase, setPhase] = useState<InterviewPhase>('config');
+  const [loadingStage, setLoadingStage] = useState<LoadingStage>('UPLOADING_AUDIO');
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isMissionsLoading, setIsMissionsLoading] = useState(false);
@@ -27,11 +31,18 @@ const App: React.FC = () => {
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
   const [targetDelta, setTargetDelta] = useState<ImprovementItem | null>(null);
   const [practiceFeedback, setPracticeFeedback] = useState<{ success: boolean; feedback: string } | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [missingKeyError, setMissingKeyError] = useState<boolean>(false);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('pm_app_access_token');
     if (savedToken) setIsAuthorized(true);
     setIsAuthLoading(false);
+
+    // Phase 1: Clear UI error if API_KEY is missing
+    if (!process.env.API_KEY) {
+      setMissingKeyError(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -42,8 +53,12 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('pm_coach_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
+    // Phase 4: Mission Caching (24h)
     const savedMissions = localStorage.getItem('pm_coach_missions');
-    if (savedMissions) {
+    const lastMissionsUpdate = localStorage.getItem('pm_coach_missions_timestamp');
+    const isCacheFresh = lastMissionsUpdate && (Date.now() - parseInt(lastMissionsUpdate)) < 86400000;
+
+    if (savedMissions && isCacheFresh) {
         setDailyMissions(JSON.parse(savedMissions));
     } else {
         loadMissions();
@@ -52,10 +67,14 @@ const App: React.FC = () => {
 
   const loadMissions = async () => {
     setIsMissionsLoading(true);
+    setLoadingStage('SEARCHING_RESOURCES');
     try {
       const m = await geminiService.discoverMissions();
-      setDailyMissions(m);
-      localStorage.setItem('pm_coach_missions', JSON.stringify(m));
+      if (m && m.length > 0) {
+        setDailyMissions(m);
+        localStorage.setItem('pm_coach_missions', JSON.stringify(m));
+        localStorage.setItem('pm_coach_missions_timestamp', Date.now().toString());
+      }
     } finally {
       setIsMissionsLoading(false);
     }
@@ -94,28 +113,54 @@ const App: React.FC = () => {
 
   const handleStopRecording = async (blob: Blob) => {
     if (!currentQuestion) return;
-    setIsProcessing(true); setPhase('analyzing');
+    setIsProcessing(true); 
+    setPhase('analyzing');
+    setLoadingStage('UPLOADING_AUDIO');
+
     const reader = new FileReader();
     reader.readAsDataURL(blob);
     reader.onloadend = async () => {
-      const { transcription, followUpQuestions } = await geminiService.generateFollowUps(currentQuestion.type, currentQuestion.text, (reader.result as string).split(',')[1], blob.type);
-      setInitialTranscript(transcription); setFollowUpQuestions(followUpQuestions);
-      setPhase('grilling'); setIsProcessing(false);
+      setLoadingStage('TRANSCRIBING');
+      try {
+        const result = await geminiService.generateFollowUps(currentQuestion.type, currentQuestion.text, (reader.result as string).split(',')[1], blob.type);
+        if (!result) throw new Error("Processing failed");
+        setInitialTranscript(result.transcription); 
+        setFollowUpQuestions(result.followUpQuestions);
+        setPhase('grilling');
+      } catch (err) {
+        setApiError("Transcription failed. Response might be too long for the current network.");
+        setPhase('config');
+      } finally {
+        setIsProcessing(false);
+      }
     };
   };
 
   const handleStopFollowUp = async (blob: Blob) => {
     if (!currentQuestion) return;
-    setIsProcessing(true); setPhase('analyzing');
+    setIsProcessing(true); 
+    setPhase('analyzing');
+    setLoadingStage('UPLOADING_AUDIO');
+
     const reader = new FileReader();
     reader.readAsDataURL(blob);
     reader.onloadend = async () => {
-      const base64 = (reader.result as string).split(',')[1];
-      const analysis = await geminiService.analyzeFullSession(currentQuestion.type, currentQuestion.text, initialTranscript, followUpQuestions, base64, blob.type);
-      setResult(analysis);
-      const newHistoryItem: HistoryItem = { id: `int-${Date.now()}`, activityType: 'INTERVIEW', timestamp: Date.now(), questionTitle: currentQuestion.text, type: currentQuestion.type, result: analysis };
-      saveHistory([newHistoryItem, ...history]);
-      setPhase('result'); setIsProcessing(false);
+      setLoadingStage('GENERATING_LOGIC');
+      try {
+        const base64 = (reader.result as string).split(',')[1];
+        const analysis = await geminiService.analyzeFullSession(currentQuestion.type, currentQuestion.text, initialTranscript, followUpQuestions, base64, blob.type);
+        if (!analysis) throw new Error("Analysis failed");
+        setLoadingStage('FINALIZING_AUDIT');
+        setResult(analysis);
+        const newHistoryItem: HistoryItem = { id: `int-${Date.now()}`, activityType: 'INTERVIEW', timestamp: Date.now(), questionTitle: currentQuestion.text, type: currentQuestion.type, result: analysis };
+        saveHistory([newHistoryItem, ...history]);
+        setPhase('result');
+      } catch (err) {
+        setApiError("Audit timed out or returned partial data. Please check your internet stability.");
+        setPhase('config');
+      } finally {
+        setIsProcessing(false);
+      }
     };
   };
 
@@ -128,9 +173,11 @@ const App: React.FC = () => {
   const handleStopPracticeDelta = async (blob: Blob) => {
      if (!targetDelta) return;
      setIsProcessing(true);
+     setLoadingStage('UPLOADING_AUDIO');
      const reader = new FileReader();
      reader.readAsDataURL(blob);
      reader.onloadend = async () => {
+       setLoadingStage('TRANSCRIBING');
        const base64 = (reader.result as string).split(',')[1];
        const feedback = await geminiService.verifyDeltaPractice(targetDelta, base64, blob.type);
        setPracticeFeedback(feedback);
@@ -146,6 +193,25 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
       <Header user={user} onShowHistory={() => setPhase('history')} onShowHome={() => setPhase('config')} onShowSettings={() => setPhase('settings')} onLogout={() => setIsAuthorized(false)} />
       <Container>
+        {missingKeyError && (
+          <div className="mb-8 p-6 bg-amber-50 border-2 border-amber-200 rounded-[2rem] text-amber-800 animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center space-x-4">
+              <div className="bg-amber-100 p-2 rounded-xl">⚠️</div>
+              <div className="flex-1">
+                <p className="font-black uppercase text-xs tracking-widest mb-1">Deployment Configuration Error</p>
+                <p className="text-sm font-medium">Gemini API Key is missing. If you are on Vercel, ensure <code className="bg-amber-100 px-1 rounded">API_KEY</code> is set in Environment Variables and "Deployment Protection" is handled.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {apiError && (
+          <div className="mb-8 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-600 font-bold text-center animate-in fade-in slide-in-from-top-2">
+            {apiError}
+            <button onClick={() => setApiError(null)} className="ml-4 underline uppercase text-[10px]">Dismiss</button>
+          </div>
+        )}
+        
         {phase === 'config' && (
           <div className="space-y-12">
             <DashboardProgress history={history} />
@@ -154,54 +220,39 @@ const App: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 items-start">
-              {/* Interview Practice Section - Left Column */}
               <div className="lg:col-span-2 space-y-6">
                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Interview Practice</h3>
                  <div className="flex flex-col gap-8">
-                    {/* PRODUCT SENSE CTA */}
                     <button 
                       onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} 
                       className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-indigo-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10"
                     >
-                       <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-150 transition-transform duration-700 pointer-events-none">
-                          <svg className="w-32 h-32 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                       </div>
-                       
                        <div className="relative z-10 flex flex-col h-full">
                           <div className="flex justify-between items-start mb-6">
                              <div className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-3xl shadow-lg border border-white/20">💡</div>
                              <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-indigo-100 uppercase tracking-widest border border-white/10">Strategy Champ</span>
                           </div>
-                          
                           <h3 className="text-3xl font-black text-white mb-2 leading-tight">Product Sense</h3>
                           <p className="text-indigo-100 font-bold text-sm mb-8 opacity-90 leading-relaxed">Master visionary empathy and user-centric design thinking.</p>
-                          
                           <div className="mt-auto">
                              <div className="w-fit bg-white text-indigo-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl group-hover:bg-indigo-50 transition-colors">Start Session</div>
                           </div>
                        </div>
                     </button>
 
-                    {/* ANALYTICAL THINKING CTA */}
                     <button 
                       onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} 
                       className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-emerald-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10"
                     >
-                       <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-150 transition-transform duration-700 pointer-events-none">
-                          <svg className="w-32 h-32 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                       </div>
-
                        <div className="relative z-10 flex flex-col h-full">
                           <div className="flex justify-between items-start mb-6">
                              <div className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-3xl shadow-lg border border-white/20">📊</div>
                              <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-emerald-100 uppercase tracking-widest border border-white/10">Metric Mastery</span>
                           </div>
-                          
                           <h3 className="text-3xl font-black text-white mb-2 leading-tight">Analytical Thinking</h3>
                           <div className="mb-8 bg-white/20 backdrop-blur-md p-4 rounded-2xl border border-white/20">
                              <p className="text-white font-bold text-sm leading-relaxed">Execute root cause analysis and metric trade-offs with precision.</p>
                           </div>
-                          
                           <div className="mt-auto">
                              <div className="w-fit bg-white text-emerald-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl group-hover:bg-emerald-50 transition-colors">Start Session</div>
                           </div>
@@ -210,7 +261,6 @@ const App: React.FC = () => {
                  </div>
               </div>
 
-              {/* Daily Growth Section - Right Column */}
               <div className="lg:col-span-3">
                 <MissionFeed 
                   missions={dailyMissions} 
@@ -276,7 +326,29 @@ const App: React.FC = () => {
               )}
            </div>
         )}
-        {phase === 'analyzing' && <div className="py-24 text-center text-2xl font-black animate-pulse">AUDITING PERFORMANCE...</div>}
+        {phase === 'analyzing' && (
+          <div className="py-24 text-center space-y-8">
+            <div className="text-4xl font-black text-slate-900 animate-pulse tracking-tight uppercase">
+              {loadingStage === 'UPLOADING_AUDIO' && "Uploading Audio..."}
+              {loadingStage === 'TRANSCRIBING' && "Transcribing Logic..."}
+              {loadingStage === 'GENERATING_LOGIC' && "Generating Logic..."}
+              {loadingStage === 'FINALIZING_AUDIT' && "Finalizing Audit..."}
+              {loadingStage === 'SEARCHING_RESOURCES' && "Searching Resources..."}
+            </div>
+            <div className="max-w-xs mx-auto h-1.5 bg-slate-200 rounded-full overflow-hidden">
+               <div className={`h-full bg-indigo-600 transition-all duration-1000 ease-out ${
+                 loadingStage === 'UPLOADING_AUDIO' ? 'w-1/4' : 
+                 loadingStage === 'TRANSCRIBING' ? 'w-1/2' : 
+                 loadingStage === 'GENERATING_LOGIC' ? 'w-3/4' : 'w-[98%]'
+               }`}></div>
+            </div>
+            <p className="text-sm font-bold text-slate-400 max-w-sm mx-auto">
+              {loadingStage === 'GENERATING_LOGIC' 
+                ? "Our Staff-level audit checks for MECE frameworks and metric trade-offs. This takes about 15-20 seconds."
+                : "Optimizing your performance data for analysis..."}
+            </p>
+          </div>
+        )}
         {phase === 'result' && result && <FeedbackView result={result} onReset={() => setPhase('config')} onPracticeDelta={handlePracticeDelta} isProductSense={currentQuestion?.type === InterviewType.PRODUCT_SENSE} />}
         {phase === 'history' && <HistoryList history={history} onSelect={(item) => { setResult(item.result); setPhase('result'); }} onClear={() => saveHistory([])} />}
         {phase === 'settings' && user && <SettingsView user={user} onUpdate={(u) => { setUser({...user, ...u}); localStorage.setItem('pm_coach_personal_user', JSON.stringify({...user, ...u})); }} onDeleteAccount={() => { localStorage.clear(); window.location.reload(); }} onBack={() => setPhase('config')} />}

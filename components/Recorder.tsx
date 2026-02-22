@@ -16,9 +16,7 @@ export const Recorder: React.FC<RecorderProps> = ({
   minDuration = 120 // Default to 2 minutes
 }) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [duration, setDuration] = useState(0);
-  const [currentVolume, setCurrentVolume] = useState(0);
   const [audioDetected, setAudioDetected] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -30,7 +28,6 @@ export const Recorder: React.FC<RecorderProps> = ({
   const animationFrameRef = useRef<number | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const smoothedDataRef = useRef<number[]>([]);
-  const maxVolumeReachedRef = useRef<number>(0);
 
   const SPEECH_THRESHOLD = 20;
 
@@ -63,11 +60,9 @@ export const Recorder: React.FC<RecorderProps> = ({
       let sum = 0;
       for (let i = 0; i < activeFreqs; i++) sum += dataArray[i];
       const averageVolume = sum / activeFreqs;
-      setCurrentVolume(averageVolume);
       
       if (averageVolume > SPEECH_THRESHOLD) {
         setAudioDetected(true);
-        maxVolumeReachedRef.current = Math.max(maxVolumeReachedRef.current, averageVolume);
       }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -101,37 +96,59 @@ export const Recorder: React.FC<RecorderProps> = ({
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Phase 2: Hardware-level constraints for mono, 16kHz audio
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true
+        } 
+      });
+
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+        sampleRate: 16000 // Ensure AudioContext also uses optimized rate
+      });
+      
       analyserRef.current = audioContextRef.current.createAnalyser();
       sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
       sourceRef.current.connect(analyserRef.current);
       analyserRef.current.fftSize = 256; 
 
-      const mediaRecorder = new MediaRecorder(stream);
+      const options = {
+        mimeType: 'audio/webm;codecs=opus',
+        audioBitsPerSecond: 16000 // Voice-only optimized bitrate
+      };
+      
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, options);
+      } catch (e) {
+        mediaRecorder = new MediaRecorder(stream);
+      }
+
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-      maxVolumeReachedRef.current = 0;
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
         onStop(audioBlob);
         cleanup();
       };
 
       mediaRecorder.start();
       setIsRecording(true);
-      setIsPaused(false);
       setDuration(0);
       setAudioDetected(false);
       startTimer();
       drawWaveform();
     } catch (err) {
       console.error("Error accessing microphone:", err);
+      alert("Microphone access denied. Please check browser permissions.");
     }
   };
 
@@ -145,11 +162,11 @@ export const Recorder: React.FC<RecorderProps> = ({
   const handleStop = (e: React.MouseEvent) => {
     e.preventDefault();
     if (duration < minDuration) {
-      alert(`Minimum speaking time is ${minDuration}s. Current: ${duration}s.`);
+      alert(`Minimum speaking time is ${minDuration}s for a high-quality audit. Current: ${duration}s.`);
       return;
     }
     if (!audioDetected) {
-      alert("No audio detected. Please check your mic.");
+      alert("We didn't detect any audio. Please verify your microphone is active.");
       return;
     }
     if (mediaRecorderRef.current && isRecording) {
@@ -172,7 +189,7 @@ export const Recorder: React.FC<RecorderProps> = ({
     <div className="flex flex-col items-center space-y-12 py-8 w-full max-w-4xl mx-auto">
       {prompt && (
         <div className="w-full px-6 py-8 bg-white border border-slate-200 rounded-[2.5rem] shadow-sm">
-          <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-4 text-center">Reference</h3>
+          <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-4 text-center">Reference Prompt</h3>
           <p className="text-xl font-bold text-slate-800 text-center leading-snug">
             {Array.isArray(prompt) ? prompt[0] : prompt}
           </p>
@@ -195,15 +212,15 @@ export const Recorder: React.FC<RecorderProps> = ({
         <button
           onClick={isRecording ? handleStop : startRecording}
           disabled={isProcessing}
-          className={`w-32 h-32 rounded-full flex items-center justify-center transition shadow-2xl ${isRecording ? 'bg-red-600' : 'bg-indigo-600'}`}
+          className={`w-32 h-32 rounded-full flex items-center justify-center transition shadow-2xl ${isRecording ? 'bg-red-600 ring-4 ring-red-100' : 'bg-indigo-600 ring-4 ring-indigo-100'} active:scale-95`}
         >
           {isRecording ? <div className="w-10 h-10 bg-white rounded-lg"></div> : <svg className="w-14 h-14 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>}
         </button>
       </div>
 
       {isProcessing && (
-        <div className="flex items-center space-x-3 text-indigo-600 font-black text-sm uppercase tracking-widest animate-pulse">
-           <span>Analyzing Performance...</span>
+        <div className="flex flex-col items-center space-y-3 animate-pulse">
+           <span className="text-indigo-600 font-black text-sm uppercase tracking-widest">Optimizing Data...</span>
         </div>
       )}
     </div>
