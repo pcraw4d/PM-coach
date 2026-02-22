@@ -69,7 +69,7 @@ export class GeminiService {
 
   async discoverMissions(): Promise<KnowledgeMission[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Search for 4 RECENT high-value PM resources from top firms (Lenny's, SVPG, Reforge). Return JSON array: [{id, title, source, url, type, summary, xpAwarded}]`;
+    const prompt = `Search for 4 RECENT high-value PM resources from top firms (Lenny's, SVPG, Reforge). Return JSON array: [{id, title, source, url, type, summary, xpAwarded: number (strictly between 25 and 50)}]`;
     
     try {
       return await this.withRetry(async () => {
@@ -78,7 +78,14 @@ export class GeminiService {
           contents: prompt,
           config: { tools: [{ googleSearch: {} }], temperature: 0.1 }
         });
-        return this.extractJson(response.text || "") || [];
+        const missions = this.extractJson(response.text || "") || [];
+        // Ensure xpAwarded is always a valid number in the requested range
+        return missions.map((m: any) => ({
+          ...m,
+          xpAwarded: typeof m.xpAwarded === 'number' && !isNaN(m.xpAwarded) 
+            ? Math.max(25, Math.min(50, m.xpAwarded)) 
+            : Math.floor(Math.random() * 26) + 25
+        }));
       });
     } catch (error) {
       console.error("Mission discovery failed after retries", error);
