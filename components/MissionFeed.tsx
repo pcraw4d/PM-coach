@@ -19,9 +19,9 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
             <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
         </div>
-        <div className="flex space-x-6 overflow-hidden py-2 -mx-4 px-4">
+        <div className="flex flex-col space-y-6">
           {[1, 2, 3].map(i => (
-            <div key={i} className="min-w-[300px] h-[240px] bg-white border border-slate-100 rounded-[2.5rem] p-7 space-y-4 animate-pulse relative overflow-hidden">
+            <div key={i} className="w-full h-[240px] bg-white border border-slate-100 rounded-[2.5rem] p-7 space-y-4 animate-pulse relative overflow-hidden">
               <div className="flex justify-between">
                 <div className="h-4 w-20 bg-slate-100 rounded"></div>
                 <div className="h-3 w-10 bg-slate-50 rounded"></div>
@@ -61,11 +61,11 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
         </button>
       </div>
 
-      <div className="flex space-x-6 overflow-x-auto pb-6 -mx-4 px-4 no-scrollbar scroll-smooth">
+      <div className="flex flex-col space-y-6">
         {missions.map((mission) => (
           <div 
             key={mission.id}
-            className={`min-w-[300px] max-w-[300px] flex flex-col justify-between p-7 rounded-[2.5rem] border transition-all duration-300 ${
+            className={`w-full flex flex-col justify-between p-7 rounded-[2.5rem] border transition-all duration-300 ${
               mission.isCompleted 
                 ? 'bg-slate-50 border-transparent opacity-60 grayscale' 
                 : 'bg-white border-slate-100 hover:border-indigo-400 shadow-sm hover:shadow-xl hover:-translate-y-1'
@@ -76,8 +76,8 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
                 <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md">{mission.source}</p>
                 <span className="text-[9px] font-black text-slate-400">+{mission.xpAwarded} XP</span>
               </div>
-              <h4 className="text-sm font-black text-slate-900 leading-snug line-clamp-2">{mission.title}</h4>
-              <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-2">{mission.summary}</p>
+              <h4 className="text-lg font-black text-slate-900 leading-snug">{mission.title}</h4>
+              <p className="text-sm text-slate-500 leading-relaxed line-clamp-3">{mission.summary}</p>
             </div>
 
             <div className="mt-6 pt-5 border-t border-slate-50">
