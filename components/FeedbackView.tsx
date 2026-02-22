@@ -27,8 +27,14 @@ const AnnotationSpan: React.FC<{ annotation: TranscriptAnnotation }> = ({ annota
 
   if (annotation.type === 'neutral') return <span>{annotation.text} </span>;
 
-  const rewrite = annotation.feedback?.split('REWRITE:')[1];
-  const feedback = annotation.feedback?.split('REWRITE:')[0];
+  // Split feedback into parts: Initial Critique, REWRITE, and ACTION
+  const feedback = annotation.feedback || '';
+  const rewriteMatch = feedback.match(/REWRITE:(.*?)(?=ACTION:|$)/s);
+  const actionMatch = feedback.match(/ACTION:(.*?)$/s);
+  
+  const critiqueText = feedback.split(/REWRITE:|ACTION:/)[0].trim();
+  const rewriteText = rewriteMatch ? rewriteMatch[1].trim() : null;
+  const actionText = actionMatch ? actionMatch[1].trim() : null;
 
   return (
     <span 
@@ -40,13 +46,22 @@ const AnnotationSpan: React.FC<{ annotation: TranscriptAnnotation }> = ({ annota
       {showTooltip && (
         <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-80 p-4 bg-slate-900 text-white text-[11px] rounded-2xl shadow-2xl z-50 font-medium leading-relaxed animate-in fade-in zoom-in-95">
           <span className="block font-black text-[9px] tracking-[0.2em] text-indigo-400 mb-2 uppercase">{annotation.type} Audit</span>
-          {feedback}
-          {rewrite && (
+          <p className="mb-2">{critiqueText}</p>
+          
+          {rewriteText && (
             <div className="mt-3 pt-3 border-t border-white/10">
               <span className="block text-[8px] font-black text-emerald-400 uppercase tracking-widest mb-1">Staff-Level Alternative</span>
-              <p className="italic text-slate-300">"{rewrite.trim()}"</p>
+              <p className="italic text-slate-300">"{rewriteText}"</p>
             </div>
           )}
+
+          {actionText && (
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <span className="block text-[8px] font-black text-amber-400 uppercase tracking-widest mb-1">Concrete Step</span>
+              <p className="text-slate-200 font-bold leading-snug">{actionText}</p>
+            </div>
+          )}
+          
           <span className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-900"></span>
         </span>
       )}
@@ -277,6 +292,17 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                         <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Step-By-Step Phrasing Guide</p>
                       </div>
                       <HowToRenderer text={item.howTo} />
+                      
+                      <div className="mt-6 pt-4 border-t border-slate-200/50 flex items-center justify-between">
+                         <div className="flex items-center space-x-2">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Effort</span>
+                            <span className={`text-[10px] font-bold ${item.effort === 'Low' ? 'text-emerald-500' : item.effort === 'Medium' ? 'text-amber-500' : 'text-rose-500'}`}>{item.effort}</span>
+                         </div>
+                         <div className="flex items-center space-x-2">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Growth Impact</span>
+                            <span className={`text-[10px] font-bold ${item.impact === 'High' ? 'text-indigo-600' : 'text-slate-600'}`}>{item.impact}</span>
+                         </div>
+                      </div>
                    </div>
                 </div>
                 <button onClick={() => onPracticeDelta(item)} className="mt-10 w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black text-[11px] uppercase tracking-[0.25em] hover:bg-indigo-700 transition shadow-xl active:scale-95 transform hover:-translate-y-1">Practice This Phrase</button>
