@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { HistoryItem, InterviewType } from '../types.ts';
 import { 
   AreaChart, 
@@ -7,7 +7,11 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer
+  ResponsiveContainer,
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis
 } from 'recharts';
 
 interface HistoryListProps {
@@ -16,30 +20,21 @@ interface HistoryListProps {
   onClear: () => void;
 }
 
-interface Badge {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  unlocked: boolean;
-  color: string;
-}
-
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
-    if (data.activityType === 'MISSION') return null;
     return (
-      <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl shadow-xl">
-        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">
+      <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-2xl">
+        <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest mb-1">
           {new Date(data.timestamp).toLocaleDateString()}
         </p>
-        <p className="text-white text-xs font-semibold mb-1 max-w-[200px] line-clamp-2">
+        <p className="text-white text-[11px] font-bold mb-2 max-w-[180px] leading-tight">
           {data.title}
         </p>
-        <p className="text-indigo-400 font-black text-lg">
-          Score: {data.score}
-        </p>
+        <div className="flex items-center space-x-2">
+           <span className="text-2xl font-black text-white">{payload[0].value}</span>
+           <span className="text-[10px] text-slate-500 font-black uppercase">Score</span>
+        </div>
       </div>
     );
   }
@@ -47,94 +42,233 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onClear }) => {
-  const gamification = useMemo(() => {
-    if (history.length === 0) return null;
+  const [activeCategory, setActiveCategory] = useState<'overall' | 'vision' | 'execution'>('overall');
 
+  const analytics = useMemo(() => {
+    const interviews = history
+      .filter(h => h.activityType === 'INTERVIEW')
+      .sort((a, b) => a.timestamp - b.timestamp) as any[];
+
+    if (interviews.length === 0) return null;
+
+    // Mapping engine to normalize dynamic rubric labels into pillars
+    const getPillarScore = (item: any, pillar: 'vision' | 'execution' | 'user' | 'logic') => {
+      const scores = item.result?.rubricScores || [];
+      const relevant = scores.filter((s: any) => {
+        const cat = s.category.toLowerCase();
+        if (pillar === 'vision') return cat.includes('vision') || cat.includes('clarify') || cat.includes('mission');
+        if (pillar === 'user') return cat.includes('user') || cat.includes('persona') || cat.includes('empathy');
+        if (pillar === 'logic') return cat.includes('logic') || cat.includes('framework') || cat.includes('mece') || cat.includes('analytical');
+        return cat.includes('prioritize') || cat.includes('metric') || cat.includes('trade-off') || cat.includes('root') || cat.includes('action');
+      });
+      
+      if (relevant.length === 0) return item.result?.overallScore || 0;
+      return Math.round(relevant.reduce((a: any, b: any) => a + b.score, 0) / relevant.length);
+    };
+
+    // Build timeline data
+    const chartData = interviews.map((h) => ({
+      timestamp: h.timestamp,
+      overall: h.result.overallScore,
+      vision: getPillarScore(h, 'vision'),
+      execution: getPillarScore(h, 'execution'),
+      title: h.questionTitle,
+    }));
+
+    // Build Radar Data (Aggregated Skill Profile)
+    const radarData = [
+      { subject: 'Strategy', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'vision'), 0) / interviews.length) },
+      { subject: 'Users', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'user'), 0) / interviews.length) },
+      { subject: 'Logic', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'logic'), 0) / interviews.length) },
+      { subject: 'Execution', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'execution'), 0) / interviews.length) },
+      { subject: 'Comm', A: Math.round(interviews.reduce((acc, h) => acc + (h.result.communicationAnalysis?.confidenceScore || 70), 0) / interviews.length) },
+    ];
+
+    // Growth Delta Calculations
+    const midPoint = Math.ceil(interviews.length / 2);
+    const firstHalf = interviews.slice(0, midPoint);
+    const lastHalf = interviews.slice(-midPoint);
+    
+    const calcAvg = (arr: any[], key: 'overall' | 'vision' | 'execution') => {
+      if (arr.length === 0) return 0;
+      if (key === 'overall') return arr.reduce((a, b) => a + b.result.overallScore, 0) / arr.length;
+      return arr.reduce((a, b) => a + getPillarScore(b, key), 0) / arr.length;
+    };
+
+    const improvements = {
+      overall: Math.round(calcAvg(lastHalf, 'overall') - calcAvg(firstHalf, 'overall')),
+      vision: Math.round(calcAvg(lastHalf, 'vision') - calcAvg(firstHalf, 'vision')),
+      execution: Math.round(calcAvg(lastHalf, 'execution') - calcAvg(firstHalf, 'execution')),
+    };
+
+    const mostImproved = Object.entries(improvements).sort((a, b) => b[1] - a[1])[0];
+
+    // Gamification
     const totalXP = history.reduce((acc, item) => {
       if (item.activityType === 'INTERVIEW') {
         let xp = 100 + (item.result.overallScore * 2);
         if (item.result.overallScore >= 85) xp += 50;
         return acc + xp;
-      } else {
-        return acc + (item as any).xpAwarded;
       }
+      return acc + (item.xpAwarded || 25);
     }, 0);
 
-    const level = Math.floor(totalXP / 1000) + 1;
-    const currentLevelXP = totalXP % 1000;
-    const progressToNextLevel = (currentLevelXP / 1000) * 100;
-
-    const interviews = history.filter(h => h.activityType === 'INTERVIEW') as any[];
-    const scores = interviews.map(h => h.result.overallScore);
-    const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
-    const psScores = interviews.filter(h => h.type === InterviewType.PRODUCT_SENSE).map(h => h.result.overallScore);
-
-    const badges: Badge[] = [
-      {
-        id: 'first_step',
-        name: 'First Step',
-        description: 'Complete your first activity.',
-        icon: '🚀',
-        unlocked: history.length >= 1,
-        color: 'bg-blue-100 text-blue-600'
-      }
-    ];
-
-    const chartData = [...history]
-      .filter(h => h.activityType === 'INTERVIEW')
-      .sort((a, b) => a.timestamp - b.timestamp)
-      .map((h: any) => ({
-        timestamp: h.timestamp,
-        score: h.result.overallScore,
-        title: h.questionTitle,
-        activityType: h.activityType
-      }));
-
-    return { totalXP, level, currentLevelXP, progressToNextLevel, badges, chartData, maxScore };
+    return { 
+      level: Math.floor(totalXP / 1000) + 1, 
+      chartData, 
+      radarData,
+      mostImproved,
+      maxScore: Math.max(...interviews.map(h => h.result.overallScore)),
+      avgScore: Math.round(interviews.reduce((acc, h) => acc + h.result.overallScore, 0) / interviews.length)
+    };
   }, [history]);
 
   const formatDate = (ts: number) => {
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(ts));
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: '2-digit' }).format(new Date(ts));
   };
 
   if (history.length === 0) {
     return (
-      <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
-        <h3 className="text-xl font-bold text-slate-900 mb-2">No history yet</h3>
+      <div className="text-center py-32 bg-white rounded-[3rem] border-2 border-dashed border-slate-200">
+        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">📓</div>
+        <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">Your Journal is Empty</h3>
+        <p className="text-slate-400 font-bold max-w-xs mx-auto">Complete your first session to begin tracking your PM evolution.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-24">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Level {gamification?.level} Product Leader</h2>
+          <span className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest mb-3 inline-block">Career Progression</span>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Level {analytics?.level} Product Leader</h2>
+        </div>
+        <div className="flex items-center gap-4">
+           <div className="text-right">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Stability</p>
+              <p className="text-xl font-black text-indigo-600">Staff Rank</p>
+           </div>
+           <button onClick={onClear} className="p-3 bg-rose-50 text-rose-500 rounded-2xl hover:bg-rose-100 transition shadow-sm">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+           </button>
         </div>
       </div>
 
-      <div className="grid gap-4">
-        {history.sort((a, b) => b.timestamp - a.timestamp).map((item) => (
-          <div
-            key={item.id}
-            className="flex flex-col md:flex-row md:items-center justify-between p-6 bg-white rounded-2xl border border-slate-100 shadow-sm"
-          >
-            <div className="flex-1">
-              <span className="text-xs text-slate-400">{formatDate(item.timestamp)}</span>
-              <h4 className="text-lg font-bold text-slate-800">
-                {item.activityType === 'MISSION' ? (item as any).title : (item as any).questionTitle}
-              </h4>
+      {analytics && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+           <div className="lg:col-span-2 bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-8">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Skill Velocity</h3>
+                 <div className="flex bg-slate-100 p-1 rounded-xl">
+                    {(['overall', 'vision', 'execution'] as const).map((cat) => (
+                      <button 
+                        key={cat}
+                        onClick={() => setActiveCategory(cat)}
+                        className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${activeCategory === cat ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                 </div>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={analytics.chartData}>
+                    <defs>
+                      <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
+                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="timestamp" hide />
+                    <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey={activeCategory} stroke="#4f46e5" strokeWidth={4} fill="url(#colorActive)" animationDuration={1200} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+           </div>
+
+           <div className="bg-slate-900 p-8 rounded-[3rem] text-white shadow-2xl flex flex-col justify-between overflow-hidden relative">
+              <div className="absolute -top-10 -right-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl"></div>
+              
+              <div className="space-y-6 relative z-10">
+                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-widest">Growth engine</h3>
+                
+                <div className="h-40 w-full mb-4">
+                   <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart cx="50%" cy="50%" outerRadius="80%" data={analytics.radarData}>
+                         <PolarGrid stroke="#ffffff10" />
+                         <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 8, fontWeight: 800 }} />
+                         <Radar name="Expertise" dataKey="A" stroke="#818cf8" fill="#818cf8" fillOpacity={0.6} />
+                      </RadarChart>
+                   </ResponsiveContainer>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Max XP/Sess</p>
+                    <p className="text-xl font-black">{analytics.maxScore}</p>
+                  </div>
+                  <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <p className="text-[9px] font-black text-slate-500 uppercase mb-1">Improved</p>
+                    <p className="text-xl font-black text-emerald-400">+{analytics.mostImproved[1]} pts</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="pt-6 relative z-10">
+                 <div className="flex items-center space-x-3 text-emerald-400 bg-emerald-400/5 p-3 rounded-2xl border border-emerald-400/10">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                    <p className="text-[9px] font-black uppercase tracking-widest">Status: Positive Velocity</p>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      <div className="space-y-6">
+        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Activity Feed</h3>
+        <div className="grid gap-4">
+          {history.sort((a, b) => b.timestamp - a.timestamp).map((item) => (
+            <div key={item.id} className="group flex flex-col md:flex-row md:items-center justify-between p-7 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm hover:border-indigo-200 hover:shadow-xl transition-all duration-300">
+              <div className="flex items-center space-x-6">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner ${item.activityType === 'MISSION' ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                   {item.activityType === 'MISSION' ? '📖' : '🎙️'}
+                </div>
+                <div>
+                  <div className="flex items-center space-x-3 mb-1">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{formatDate(item.timestamp)}</span>
+                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${item.activityType === 'MISSION' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                      {item.activityType}
+                    </span>
+                  </div>
+                  <h4 className="text-lg font-black text-slate-900 leading-tight">{item.activityType === 'MISSION' ? item.title : item.questionTitle}</h4>
+                </div>
+              </div>
+
+              <div className="mt-4 md:mt-0 flex items-center gap-6">
+                {item.activityType === 'INTERVIEW' && item.result && (
+                  <div className="flex items-center gap-4 mr-4">
+                    {analytics && item.result.overallScore > analytics.avgScore && (
+                       <span className="bg-emerald-100 text-emerald-700 text-[8px] font-black px-2 py-1 rounded uppercase tracking-tighter">Above Avg</span>
+                    )}
+                    <div className="text-right">
+                       <span className="text-2xl font-black text-slate-900">{item.result.overallScore}</span>
+                       <span className="text-[10px] font-black text-slate-400 uppercase ml-1">pts</span>
+                    </div>
+                  </div>
+                )}
+                {item.activityType === 'MISSION' && <span className="text-emerald-500 font-black text-sm pr-4">+{item.xpAwarded} XP</span>}
+                {item.activityType === 'INTERVIEW' && (
+                  <button onClick={() => onSelect(item)} className="bg-slate-900 text-white font-black py-3 px-6 rounded-xl text-[10px] uppercase tracking-widest hover:bg-indigo-600 transition shadow-lg transform active:scale-95">View Audit</button>
+                )}
+              </div>
             </div>
-            {item.activityType === 'INTERVIEW' && (
-              <button onClick={() => onSelect(item)} className="text-indigo-600 font-bold">View Feedback</button>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
