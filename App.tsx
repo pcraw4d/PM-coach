@@ -225,7 +225,7 @@ const App: React.FC = () => {
                  <div className="flex flex-col gap-8">
                     <button 
                       onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} 
-                      className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-indigo-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10"
+                      className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-indigo-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]"
                     >
                        <div className="relative z-10 flex flex-col h-full">
                           <div className="flex justify-between items-start mb-6">
@@ -233,7 +233,9 @@ const App: React.FC = () => {
                              <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-indigo-100 uppercase tracking-widest border border-white/10">Strategy Champ</span>
                           </div>
                           <h3 className="text-3xl font-black text-white mb-2 leading-tight">Product Sense</h3>
-                          <p className="text-indigo-100 font-bold text-sm mb-8 opacity-90 leading-relaxed">Master visionary empathy and user-centric design thinking.</p>
+                          <div className="mb-8 p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10">
+                            <p className="text-indigo-100 font-bold text-sm leading-relaxed">Master visionary empathy and user-centric design thinking.</p>
+                          </div>
                           <div className="mt-auto">
                              <div className="w-fit bg-white text-indigo-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl group-hover:bg-indigo-50 transition-colors">Start Session</div>
                           </div>
@@ -242,7 +244,7 @@ const App: React.FC = () => {
 
                     <button 
                       onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} 
-                      className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-emerald-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10"
+                      className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-emerald-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]"
                     >
                        <div className="relative z-10 flex flex-col h-full">
                           <div className="flex justify-between items-start mb-6">
@@ -250,8 +252,8 @@ const App: React.FC = () => {
                              <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-emerald-100 uppercase tracking-widest border border-white/10">Metric Mastery</span>
                           </div>
                           <h3 className="text-3xl font-black text-white mb-2 leading-tight">Analytical Thinking</h3>
-                          <div className="mb-8 bg-white/20 backdrop-blur-md p-4 rounded-2xl border border-white/20">
-                             <p className="text-white font-bold text-sm leading-relaxed">Execute root cause analysis and metric trade-offs with precision.</p>
+                          <div className="mb-8 p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10">
+                             <p className="text-emerald-50 font-bold text-sm leading-relaxed">Execute root cause analysis and metric trade-offs with precision.</p>
                           </div>
                           <div className="mt-auto">
                              <div className="w-fit bg-white text-emerald-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl group-hover:bg-emerald-50 transition-colors">Start Session</div>
