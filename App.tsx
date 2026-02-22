@@ -12,8 +12,7 @@ import { InterviewType, Question, InterviewPhase, InterviewResult, HistoryItem, 
 import { QUESTIONS } from './constants.tsx';
 import { geminiService } from './services/geminiService.ts';
 
-// Phase 4: Match plan loading stages exactly
-type LoadingStage = 'UPLOADING_AUDIO' | 'TRANSCRIBING' | 'GENERATING_LOGIC' | 'FINALIZING_AUDIT' | 'SEARCHING_RESOURCES';
+type LoadingStage = 'UPLOADING_AUDIO' | 'TRANSCRIBING' | 'GENERATING_FOLLOWUPS' | 'GENERATING_LOGIC' | 'FINALIZING_AUDIT' | 'SEARCHING_RESOURCES';
 
 const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
@@ -33,15 +32,27 @@ const App: React.FC = () => {
   const [practiceFeedback, setPracticeFeedback] = useState<{ success: boolean; feedback: string } | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [missingKeyError, setMissingKeyError] = useState<boolean>(false);
+  const [hasCheckpoint, setHasCheckpoint] = useState<boolean>(false);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('pm_app_access_token');
     if (savedToken) setIsAuthorized(true);
     setIsAuthLoading(false);
 
-    // Phase 1: Clear UI error if API_KEY is missing
     if (!process.env.API_KEY) {
       setMissingKeyError(true);
+    }
+    
+    // Check for incomplete sessions
+    const checkpoint = sessionStorage.getItem('last_checkpoint_initial');
+    const checkpointTime = sessionStorage.getItem('last_checkpoint_time');
+    
+    // Clear stale checkpoints (older than 4 hours)
+    if (checkpointTime && (Date.now() - parseInt(checkpointTime)) > 14400000) {
+      sessionStorage.clear();
+      setHasCheckpoint(false);
+    } else if (checkpoint) {
+      setHasCheckpoint(true);
     }
   }, []);
 
@@ -53,7 +64,6 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('pm_coach_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Phase 4: Mission Caching (24h)
     const savedMissions = localStorage.getItem('pm_coach_missions');
     const lastMissionsUpdate = localStorage.getItem('pm_coach_missions_timestamp');
     const isCacheFresh = lastMissionsUpdate && (Date.now() - parseInt(lastMissionsUpdate)) < 86400000;
@@ -109,6 +119,62 @@ const App: React.FC = () => {
     const filtered = QUESTIONS.filter(q => q.type === type);
     setCurrentQuestion(filtered[Math.floor(Math.random() * filtered.length)]);
     setPhase('question');
+    sessionStorage.clear();
+    setHasCheckpoint(false);
+  };
+
+  const handleResumeAudit = async () => {
+    const cachedInitial = sessionStorage.getItem('last_checkpoint_initial');
+    const cachedFollowUp = sessionStorage.getItem('last_checkpoint_followup');
+    const cachedQuestions = sessionStorage.getItem('last_checkpoint_questions');
+    const cachedQTitle = sessionStorage.getItem('last_checkpoint_q_title');
+    const cachedQType = sessionStorage.getItem('last_checkpoint_q_type');
+
+    if (!cachedInitial || !cachedFollowUp || !cachedQuestions) {
+      setApiError("Checkpoint data missing. Please record a new session.");
+      sessionStorage.clear();
+      setHasCheckpoint(false);
+      return;
+    }
+
+    setIsProcessing(true);
+    setPhase('analyzing');
+    setLoadingStage('GENERATING_LOGIC');
+    
+    try {
+      const questionsArray = JSON.parse(cachedQuestions);
+      const qType = (cachedQType as InterviewType) || InterviewType.PRODUCT_SENSE;
+      
+      const analysis = await geminiService.analyzeFullSession(
+        qType,
+        cachedQTitle || "Interview Question",
+        cachedInitial,
+        questionsArray,
+        cachedFollowUp
+      );
+
+      if (!analysis) throw new Error("Analysis failed");
+      setLoadingStage('FINALIZING_AUDIT');
+      setResult(analysis);
+      
+      const newHistoryItem: HistoryItem = { 
+        id: `int-${Date.now()}`, 
+        activityType: 'INTERVIEW', 
+        timestamp: Date.now(), 
+        questionTitle: cachedQTitle || "Interview Question", 
+        type: qType, 
+        result: analysis 
+      };
+      saveHistory([newHistoryItem, ...history]);
+      setPhase('result');
+      sessionStorage.clear();
+      setHasCheckpoint(false);
+    } catch (err) {
+      setApiError("Staff Audit failed. Your text is saved—you can retry from the dashboard.");
+      setPhase('config');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleStopRecording = async (blob: Blob) => {
@@ -120,15 +186,26 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.readAsDataURL(blob);
     reader.onloadend = async () => {
-      setLoadingStage('TRANSCRIBING');
       try {
-        const result = await geminiService.generateFollowUps(currentQuestion.type, currentQuestion.text, (reader.result as string).split(',')[1], blob.type);
-        if (!result) throw new Error("Processing failed");
-        setInitialTranscript(result.transcription); 
-        setFollowUpQuestions(result.followUpQuestions);
+        const audioBase64 = (reader.result as string).split(',')[1];
+        setLoadingStage('TRANSCRIBING');
+        const transcript = await geminiService.transcribeAudio(audioBase64, blob.type);
+        setInitialTranscript(transcript);
+        
+        setLoadingStage('GENERATING_FOLLOWUPS');
+        const followUpResult = await geminiService.generateFollowUps(currentQuestion.type, currentQuestion.text, transcript);
+        if (!followUpResult) throw new Error("Processing failed");
+        
+        setFollowUpQuestions(followUpResult.followUpQuestions);
+        sessionStorage.setItem('last_checkpoint_initial', transcript);
+        sessionStorage.setItem('last_checkpoint_questions', JSON.stringify(followUpResult.followUpQuestions));
+        sessionStorage.setItem('last_checkpoint_q_title', currentQuestion.text);
+        sessionStorage.setItem('last_checkpoint_q_type', currentQuestion.type);
+        sessionStorage.setItem('last_checkpoint_time', Date.now().toString());
+        setHasCheckpoint(true);
         setPhase('grilling');
       } catch (err) {
-        setApiError("Transcription failed. Response might be too long for the current network.");
+        setApiError("Pass 1 failed. For long recordings, ensure stable high-speed internet.");
         setPhase('config');
       } finally {
         setIsProcessing(false);
@@ -145,18 +222,39 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.readAsDataURL(blob);
     reader.onloadend = async () => {
-      setLoadingStage('GENERATING_LOGIC');
       try {
         const base64 = (reader.result as string).split(',')[1];
-        const analysis = await geminiService.analyzeFullSession(currentQuestion.type, currentQuestion.text, initialTranscript, followUpQuestions, base64, blob.type);
+        setLoadingStage('TRANSCRIBING');
+        const followUpTranscript = await geminiService.transcribeAudio(base64, blob.type);
+        sessionStorage.setItem('last_checkpoint_followup', followUpTranscript);
+
+        setLoadingStage('GENERATING_LOGIC');
+        const analysis = await geminiService.analyzeFullSession(
+          currentQuestion.type, 
+          currentQuestion.text, 
+          initialTranscript || sessionStorage.getItem('last_checkpoint_initial') || "", 
+          followUpQuestions || JSON.parse(sessionStorage.getItem('last_checkpoint_questions') || "[]"), 
+          followUpTranscript
+        );
+        
         if (!analysis) throw new Error("Analysis failed");
         setLoadingStage('FINALIZING_AUDIT');
         setResult(analysis);
-        const newHistoryItem: HistoryItem = { id: `int-${Date.now()}`, activityType: 'INTERVIEW', timestamp: Date.now(), questionTitle: currentQuestion.text, type: currentQuestion.type, result: analysis };
+        
+        const newHistoryItem: HistoryItem = { 
+          id: `int-${Date.now()}`, 
+          activityType: 'INTERVIEW', 
+          timestamp: Date.now(), 
+          questionTitle: currentQuestion.text, 
+          type: currentQuestion.type, 
+          result: analysis 
+        };
         saveHistory([newHistoryItem, ...history]);
+        sessionStorage.clear();
+        setHasCheckpoint(false);
         setPhase('result');
       } catch (err) {
-        setApiError("Audit timed out or returned partial data. Please check your internet stability.");
+        setApiError("Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.");
         setPhase('config');
       } finally {
         setIsProcessing(false);
@@ -177,11 +275,16 @@ const App: React.FC = () => {
      const reader = new FileReader();
      reader.readAsDataURL(blob);
      reader.onloadend = async () => {
-       setLoadingStage('TRANSCRIBING');
-       const base64 = (reader.result as string).split(',')[1];
-       const feedback = await geminiService.verifyDeltaPractice(targetDelta, base64, blob.type);
-       setPracticeFeedback(feedback);
-       setIsProcessing(false);
+       try {
+         setLoadingStage('TRANSCRIBING');
+         const base64 = (reader.result as string).split(',')[1];
+         const feedback = await geminiService.verifyDeltaPractice(targetDelta, base64, blob.type);
+         setPracticeFeedback(feedback);
+       } catch (err) {
+         setApiError("Practice verification failed.");
+       } finally {
+         setIsProcessing(false);
+       }
      };
   };
 
@@ -194,82 +297,60 @@ const App: React.FC = () => {
       <Header user={user} onShowHistory={() => setPhase('history')} onShowHome={() => setPhase('config')} onShowSettings={() => setPhase('settings')} onLogout={() => setIsAuthorized(false)} />
       <Container>
         {missingKeyError && (
-          <div className="mb-8 p-6 bg-amber-50 border-2 border-amber-200 rounded-[2rem] text-amber-800 animate-in fade-in slide-in-from-top-4">
-            <div className="flex items-center space-x-4">
-              <div className="bg-amber-100 p-2 rounded-xl">⚠️</div>
-              <div className="flex-1">
-                <p className="font-black uppercase text-xs tracking-widest mb-1">Deployment Configuration Error</p>
-                <p className="text-sm font-medium">Gemini API Key is missing. If you are on Vercel, ensure <code className="bg-amber-100 px-1 rounded">API_KEY</code> is set in Environment Variables and "Deployment Protection" is handled.</p>
-              </div>
-            </div>
+          <div className="mb-8 p-6 bg-amber-50 border-2 border-amber-200 rounded-[2rem] text-amber-800">
+            <p className="font-black uppercase text-xs tracking-widest mb-1">Configuration Error</p>
+            <p className="text-sm">API Key is missing from environment variables.</p>
           </div>
         )}
 
         {apiError && (
-          <div className="mb-8 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-600 font-bold text-center animate-in fade-in slide-in-from-top-2">
-            {apiError}
-            <button onClick={() => setApiError(null)} className="ml-4 underline uppercase text-[10px]">Dismiss</button>
+          <div className="mb-8 p-6 bg-rose-50 border-2 border-rose-200 rounded-[2rem] text-rose-600 flex justify-between items-center">
+            <p className="font-bold text-sm">{apiError}</p>
+            <button onClick={() => setApiError(null)} className="px-4 py-2 bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest">Dismiss</button>
           </div>
         )}
         
         {phase === 'config' && (
           <div className="space-y-12">
             <DashboardProgress history={history} />
-            <div className="flex justify-between items-end">
-               <h1 className="text-5xl font-black tracking-tighter">Scale up, <span className="text-indigo-600">Product.</span></h1>
-            </div>
-
+            {hasCheckpoint && (
+              <div className="bg-indigo-600 p-6 rounded-[2.5rem] text-white flex flex-col md:flex-row justify-between items-center gap-6 shadow-xl shadow-indigo-200">
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-xl">⏳</div>
+                  <div>
+                    <h4 className="font-black text-sm uppercase tracking-widest">Incomplete Audit</h4>
+                    <p className="text-xs text-indigo-100 font-medium">Session text saved. Resume Staff Audit?</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button onClick={handleResumeAudit} className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-50 shadow-lg active:scale-95">Resume Audit</button>
+                  <button onClick={() => { sessionStorage.clear(); setHasCheckpoint(false); }} className="text-white/60 text-[10px] font-black uppercase tracking-widest hover:text-white transition">Discard</button>
+                </div>
+              </div>
+            )}
+            <h1 className="text-5xl font-black tracking-tighter">Scale up, <span className="text-indigo-600">Product.</span></h1>
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 items-start">
               <div className="lg:col-span-2 space-y-6">
                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Interview Practice</h3>
                  <div className="flex flex-col gap-8">
-                    <button 
-                      onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} 
-                      className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-indigo-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]"
-                    >
-                       <div className="relative z-10 flex flex-col h-full">
-                          <div className="flex justify-between items-start mb-6">
-                             <div className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-3xl shadow-lg border border-white/20">💡</div>
-                             <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-indigo-100 uppercase tracking-widest border border-white/10">Strategy Champ</span>
-                          </div>
-                          <h3 className="text-3xl font-black text-white mb-2 leading-tight">Product Sense</h3>
-                          <div className="mb-8 p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10">
-                            <p className="text-indigo-100 font-bold text-sm leading-relaxed">Master visionary empathy and user-centric design thinking.</p>
-                          </div>
-                          <div className="mt-auto">
-                             <div className="w-fit bg-white text-indigo-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl group-hover:bg-indigo-50 transition-colors">Start Session</div>
-                          </div>
+                    <button onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]">
+                       <div className="relative z-10 flex flex-col h-full text-white">
+                          <h3 className="text-3xl font-black mb-2">Product Sense</h3>
+                          <p className="text-indigo-100 font-bold text-sm leading-relaxed mb-8">Master visionary empathy and user-centric design.</p>
+                          <div className="mt-auto bg-white text-indigo-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest w-fit">Start Session</div>
                        </div>
                     </button>
-
-                    <button 
-                      onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} 
-                      className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:shadow-emerald-500/20 transition-all duration-500 hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]"
-                    >
-                       <div className="relative z-10 flex flex-col h-full">
-                          <div className="flex justify-between items-start mb-6">
-                             <div className="w-14 h-14 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center text-3xl shadow-lg border border-white/20">📊</div>
-                             <span className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black text-emerald-100 uppercase tracking-widest border border-white/10">Metric Mastery</span>
-                          </div>
-                          <h3 className="text-3xl font-black text-white mb-2 leading-tight">Analytical Thinking</h3>
-                          <div className="mb-8 p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10">
-                             <p className="text-emerald-50 font-bold text-sm leading-relaxed">Execute root cause analysis and metric trade-offs with precision.</p>
-                          </div>
-                          <div className="mt-auto">
-                             <div className="w-fit bg-white text-emerald-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest shadow-xl group-hover:bg-emerald-50 transition-colors">Start Session</div>
-                          </div>
+                    <button onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]">
+                       <div className="relative z-10 flex flex-col h-full text-white">
+                          <h3 className="text-3xl font-black mb-2">Analytical Thinking</h3>
+                          <p className="text-emerald-50 font-bold text-sm leading-relaxed mb-8">Execute root cause analysis and metric trade-offs.</p>
+                          <div className="mt-auto bg-white text-emerald-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest w-fit">Start Session</div>
                        </div>
                     </button>
                  </div>
               </div>
-
               <div className="lg:col-span-3">
-                <MissionFeed 
-                  missions={dailyMissions} 
-                  isLoading={isMissionsLoading} 
-                  onRefresh={loadMissions} 
-                  onComplete={handleMissionComplete} 
-                />
+                <MissionFeed missions={dailyMissions} isLoading={isMissionsLoading} onRefresh={loadMissions} onComplete={handleMissionComplete} />
               </div>
             </div>
           </div>
@@ -278,76 +359,47 @@ const App: React.FC = () => {
           <div className="text-center space-y-12 py-12">
             <h2 className="text-4xl font-black text-slate-900 leading-tight max-w-3xl mx-auto">{currentQuestion.text}</h2>
             <div className="flex justify-center gap-4">
-               <button onClick={() => setPhase('recording')} className="bg-indigo-600 text-white font-black py-6 px-16 rounded-[2rem] text-xl shadow-xl hover:bg-indigo-700 transition active:scale-95">Begin My Response</button>
+               <button onClick={() => setPhase('recording')} className="bg-indigo-600 text-white font-black py-6 px-16 rounded-[2rem] text-xl shadow-xl hover:bg-indigo-700 active:scale-95">Begin My Response</button>
                <button onClick={() => setPhase('config')} className="bg-slate-100 text-slate-600 font-black py-6 px-10 rounded-[2rem] text-xl">Skip</button>
             </div>
           </div>
         )}
         {phase === 'recording' && <Recorder onStop={handleStopRecording} onCancel={() => setPhase('config')} isProcessing={isProcessing} prompt={currentQuestion?.text} minDuration={120} />}
         {phase === 'grilling' && (
-          <div className="text-center space-y-10 py-12 animate-in fade-in zoom-in-95">
-            <div className="space-y-4">
-               <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500">The Staff Audit Grill</h3>
-               <h4 className="text-2xl font-black">Defend your logic against these follow-ups:</h4>
-            </div>
+          <div className="text-center space-y-10 py-12">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500">The Staff Audit Grill</h3>
+            <h4 className="text-2xl font-black">Defend your logic against follow-ups:</h4>
             <div className="space-y-4 max-w-xl mx-auto">
               {followUpQuestions.map((q, i) => (
-                <div key={i} className="p-6 bg-white border border-slate-100 rounded-3xl font-bold italic shadow-sm text-slate-800">
-                  "{q}"
-                </div>
+                <div key={i} className="p-6 bg-white border border-slate-100 rounded-3xl font-bold italic shadow-sm">{q}</div>
               ))}
             </div>
-            <button onClick={() => setPhase('recording-followup')} className="bg-rose-600 text-white font-black py-6 px-16 rounded-[2rem] text-xl shadow-xl hover:bg-rose-700 transition active:scale-95">Defend Logic</button>
+            <button onClick={() => setPhase('recording-followup')} className="bg-rose-600 text-white font-black py-6 px-16 rounded-[2rem] text-xl shadow-xl hover:bg-rose-700 active:scale-95">Defend Logic</button>
           </div>
         )}
         {phase === 'recording-followup' && <Recorder onStop={handleStopFollowUp} onCancel={() => setPhase('config')} isProcessing={isProcessing} prompt={followUpQuestions} minDuration={60} />}
-        {phase === 'practice-delta' && targetDelta && (
-           <div className="space-y-8 py-12 text-center animate-in fade-in zoom-in-95">
-              {!practiceFeedback ? (
-                <>
-                  <h3 className="text-2xl font-black uppercase text-indigo-600">Focused Practice: {targetDelta.category}</h3>
-                  <p className="text-xl font-bold max-w-2xl mx-auto">Try this: {targetDelta.action}</p>
-                  <Recorder onStop={handleStopPracticeDelta} onCancel={() => setPhase('config')} isProcessing={isProcessing} minDuration={30} />
-                </>
-              ) : (
-                <div className="max-w-xl mx-auto space-y-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl">
-                   <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${practiceFeedback.success ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                      {practiceFeedback.success ? (
-                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                      ) : (
-                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                      )}
-                   </div>
-                   <h4 className="text-2xl font-black">{practiceFeedback.success ? "Delta Bridged!" : "Keep Polishing"}</h4>
-                   <p className="text-slate-600 font-medium leading-relaxed italic">"{practiceFeedback.feedback}"</p>
-                   <div className="flex gap-4">
-                      <button onClick={() => setPracticeFeedback(null)} className="flex-1 py-4 bg-slate-100 text-slate-700 font-black rounded-2xl uppercase tracking-widest text-[10px]">Try Again</button>
-                      <button onClick={() => setPhase('result')} className="flex-1 py-4 bg-indigo-600 text-white font-black rounded-2xl uppercase tracking-widest text-[10px]">Return to Audit</button>
-                   </div>
-                </div>
-              )}
-           </div>
-        )}
         {phase === 'analyzing' && (
           <div className="py-24 text-center space-y-8">
             <div className="text-4xl font-black text-slate-900 animate-pulse tracking-tight uppercase">
               {loadingStage === 'UPLOADING_AUDIO' && "Uploading Audio..."}
-              {loadingStage === 'TRANSCRIBING' && "Transcribing Logic..."}
-              {loadingStage === 'GENERATING_LOGIC' && "Generating Logic..."}
+              {loadingStage === 'TRANSCRIBING' && "Pass 1: Deciphering Speech..."}
+              {loadingStage === 'GENERATING_FOLLOWUPS' && "Pass 2: Crafting Grill Qs..."}
+              {loadingStage === 'GENERATING_LOGIC' && "Pass 3: Staff Deep Audit..."}
               {loadingStage === 'FINALIZING_AUDIT' && "Finalizing Audit..."}
               {loadingStage === 'SEARCHING_RESOURCES' && "Searching Resources..."}
             </div>
             <div className="max-w-xs mx-auto h-1.5 bg-slate-200 rounded-full overflow-hidden">
                <div className={`h-full bg-indigo-600 transition-all duration-1000 ease-out ${
-                 loadingStage === 'UPLOADING_AUDIO' ? 'w-1/4' : 
-                 loadingStage === 'TRANSCRIBING' ? 'w-1/2' : 
-                 loadingStage === 'GENERATING_LOGIC' ? 'w-3/4' : 'w-[98%]'
+                 loadingStage === 'UPLOADING_AUDIO' ? 'w-1/6' : 
+                 loadingStage === 'TRANSCRIBING' ? 'w-2/6' : 
+                 loadingStage === 'GENERATING_FOLLOWUPS' ? 'w-3/6' : 
+                 loadingStage === 'GENERATING_LOGIC' ? 'w-5/6' : 'w-[98%]'
                }`}></div>
             </div>
-            <p className="text-sm font-bold text-slate-400 max-w-sm mx-auto">
+            <p className="text-sm font-bold text-slate-400 max-w-sm mx-auto leading-relaxed">
               {loadingStage === 'GENERATING_LOGIC' 
-                ? "Our Staff-level audit checks for MECE frameworks and metric trade-offs. This takes about 15-20 seconds."
-                : "Optimizing your performance data for analysis..."}
+                ? "The Staff Audit performs high-level reasoning on your logic, second-order effects, and metric precision. This deep reasoning can take up to 45 seconds."
+                : "Optimizing session data for secure processing..."}
             </p>
           </div>
         )}
