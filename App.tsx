@@ -305,7 +305,7 @@ const App: React.FC = () => {
                 <>
                   <h3 className="text-2xl font-black uppercase text-indigo-600">Focused Practice: {targetDelta.category}</h3>
                   <p className="text-xl font-bold max-w-2xl mx-auto">Try this: {targetDelta.action}</p>
-                  <Recorder onStop={handleStopPracticeDelta} onCancel={() => setPhase('result')} isProcessing={isProcessing} minDuration={30} />
+                  <Recorder onStop={handleStopPracticeDelta} onCancel={() => setPhase('config')} isProcessing={isProcessing} minDuration={30} />
                 </>
               ) : (
                 <div className="max-w-xl mx-auto space-y-8 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-2xl">
