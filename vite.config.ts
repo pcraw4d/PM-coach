@@ -6,6 +6,7 @@ export default defineConfig({
   define: {
     // Specifically shim process.env variables needed by the SDK and app code
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY || ''),
+    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY || process.env.API_KEY || ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production')
   },
   server: {

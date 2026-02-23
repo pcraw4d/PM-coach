@@ -39,7 +39,7 @@ const App: React.FC = () => {
     if (savedToken) setIsAuthorized(true);
     setIsAuthLoading(false);
 
-    if (!process.env.API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       setMissingKeyError(true);
     }
     
@@ -169,7 +169,7 @@ const App: React.FC = () => {
       setPhase('result');
       sessionStorage.clear();
       setHasCheckpoint(false);
-    } catch (err) {
+    } catch (err: any) {
       setApiError("Staff Audit failed. Your text is saved—you can retry from the dashboard.");
       setPhase('config');
     } finally {
@@ -253,7 +253,7 @@ const App: React.FC = () => {
         sessionStorage.clear();
         setHasCheckpoint(false);
         setPhase('result');
-      } catch (err) {
+      } catch (err: any) {
         setApiError("Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.");
         setPhase('config');
       } finally {

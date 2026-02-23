@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse, ThinkingLevel } from "@google/genai";
 import { InterviewType, InterviewResult, KnowledgeMission, ImprovementItem } from "../types.ts";
 
 export class GeminiService {
@@ -64,7 +64,7 @@ export class GeminiService {
    */
   async transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
     return this.withRetry(async () => {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
       const prompt = "Transcribe this audio exactly. Do not add any commentary. Ensure highly technical PM terminology is captured precisely.";
       
       const response = await ai.models.generateContent({
@@ -77,7 +77,7 @@ export class GeminiService {
   }
 
   async discoverMissions(): Promise<KnowledgeMission[]> {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     const prompt = `Search for 4 RECENT high-value PM resources from top firms (Lenny's, SVPG, Reforge). Return JSON array: [{id, title, source, url, type, summary, xpAwarded: number (25-50)}]`;
     
     try {
@@ -102,7 +102,7 @@ export class GeminiService {
 
   async generateFollowUps(type: InterviewType, question: string, transcript: string) {
     return this.withRetry(async () => {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
       const trackContext = type === InterviewType.PRODUCT_SENSE 
         ? "Challenge the user's goal definition and company-specific moat. Probe for 'second-order effects'—long-term consequences of their design."
         : "Challenge the user's metric trade-offs. Ask about cannibalization and the 'unintended consequences' of optimizing for their primary metric.";
@@ -121,7 +121,7 @@ export class GeminiService {
         contents: prompt,
         config: { responseMimeType: "application/json" }
       });
-      return this.extractJson(response.text);
+      return this.extractJson(response.text || "");
     });
   }
 
@@ -137,7 +137,7 @@ export class GeminiService {
     followUpQuestions: string[], 
     followUpTranscript: string
   ): Promise<InterviewResult> {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     
     const specializedRubric = type === InterviewType.PRODUCT_SENSE ? `
       AUDIT FOCUS: PRODUCT SENSE
@@ -183,11 +183,11 @@ export class GeminiService {
 
     return this.withRetry(async () => {
       const stream = await ai.models.generateContentStream({
-        model: 'gemini-3-pro-preview',
+        model: 'gemini-3.1-pro-preview',
         contents: prompt,
         config: { 
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 32768 } // MAX budget for the deepest logic audit
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH } 
         }
       });
 
@@ -209,7 +209,7 @@ export class GeminiService {
   }
 
   async verifyDeltaPractice(delta: ImprovementItem, audioBase64: string, mimeType: string): Promise<{ success: boolean; feedback: string }> {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     const prompt = `
       Verify if the user successfully bridged this gap: "${delta.action}".
       Look for: Executive presence and precise PM terminology.
@@ -222,7 +222,7 @@ export class GeminiService {
         contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] },
         config: { responseMimeType: "application/json" }
       });
-      return this.extractJson(response.text);
+      return this.extractJson(response.text || "");
     } catch (e) {
       return { success: false, feedback: "Verification timed out." };
     }

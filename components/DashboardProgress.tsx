@@ -8,13 +8,13 @@ interface DashboardProgressProps {
 export const DashboardProgress: React.FC<DashboardProgressProps> = ({ history }) => {
   const stats = useMemo(() => {
     const totalXP = history.reduce((acc, item) => {
-      if (item.activityType === 'INTERVIEW') {
+      if (item.activityType === 'INTERVIEW' && item.result) {
         // Base 100 XP + performance bonus
         let xp = 100 + (item.result.overallScore * 2);
         if (item.result.overallScore >= 85) xp += 50; // Elite bonus
         return acc + xp;
       } else {
-        return acc + (item as any).xpAwarded;
+        return acc + (item.xpAwarded || 0);
       }
     }, 0);
 

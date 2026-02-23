@@ -67,7 +67,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
     };
 
     // Build timeline data
-    const chartData = interviews.map((h) => ({
+    const chartData = interviews.filter(h => h.result).map((h) => ({
       timestamp: h.timestamp,
       overall: h.result.overallScore,
       vision: getPillarScore(h, 'vision'),
@@ -77,11 +77,11 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
 
     // Build Radar Data (Aggregated Skill Profile)
     const radarData = [
-      { subject: 'Strategy', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'vision'), 0) / interviews.length) },
-      { subject: 'Users', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'user'), 0) / interviews.length) },
-      { subject: 'Logic', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'logic'), 0) / interviews.length) },
-      { subject: 'Execution', A: Math.round(interviews.reduce((acc, h) => acc + getPillarScore(h, 'execution'), 0) / interviews.length) },
-      { subject: 'Comm', A: Math.round(interviews.reduce((acc, h) => acc + (h.result.communicationAnalysis?.confidenceScore || 70), 0) / interviews.length) },
+      { subject: 'Strategy', A: Math.round(interviews.filter(h => h.result).reduce((acc, h) => acc + getPillarScore(h, 'vision'), 0) / interviews.length) },
+      { subject: 'Users', A: Math.round(interviews.filter(h => h.result).reduce((acc, h) => acc + getPillarScore(h, 'user'), 0) / interviews.length) },
+      { subject: 'Logic', A: Math.round(interviews.filter(h => h.result).reduce((acc, h) => acc + getPillarScore(h, 'logic'), 0) / interviews.length) },
+      { subject: 'Execution', A: Math.round(interviews.filter(h => h.result).reduce((acc, h) => acc + getPillarScore(h, 'execution'), 0) / interviews.length) },
+      { subject: 'Comm', A: Math.round(interviews.filter(h => h.result).reduce((acc, h) => acc + (h.result.communicationAnalysis?.confidenceScore || 70), 0) / interviews.length) },
     ];
 
     // Growth Delta Calculations
@@ -90,9 +90,10 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
     const lastHalf = interviews.slice(-midPoint);
     
     const calcAvg = (arr: any[], key: 'overall' | 'vision' | 'execution') => {
-      if (arr.length === 0) return 0;
-      if (key === 'overall') return arr.reduce((a, b) => a + b.result.overallScore, 0) / arr.length;
-      return arr.reduce((a, b) => a + getPillarScore(b, key), 0) / arr.length;
+      const validArr = arr.filter(item => item.result);
+      if (validArr.length === 0) return 0;
+      if (key === 'overall') return validArr.reduce((a, b) => a + b.result.overallScore, 0) / validArr.length;
+      return validArr.reduce((a, b) => a + getPillarScore(b, key), 0) / validArr.length;
     };
 
     const improvements = {
@@ -105,7 +106,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
 
     // Gamification
     const totalXP = history.reduce((acc, item) => {
-      if (item.activityType === 'INTERVIEW') {
+      if (item.activityType === 'INTERVIEW' && item.result) {
         let xp = 100 + (item.result.overallScore * 2);
         if (item.result.overallScore >= 85) xp += 50;
         return acc + xp;
@@ -113,13 +114,16 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
       return acc + (item.xpAwarded || 25);
     }, 0);
 
+    const validInterviews = interviews.filter(h => h.result);
+    if (validInterviews.length === 0) return { level: Math.floor(totalXP / 1000) + 1, chartData: [], radarData: [], mostImproved: ['overall', 0], maxScore: 0, avgScore: 0 };
+
     return { 
       level: Math.floor(totalXP / 1000) + 1, 
       chartData, 
       radarData,
       mostImproved,
-      maxScore: Math.max(...interviews.map(h => h.result.overallScore)),
-      avgScore: Math.round(interviews.reduce((acc, h) => acc + h.result.overallScore, 0) / interviews.length)
+      maxScore: Math.max(...validInterviews.map(h => h.result.overallScore)),
+      avgScore: Math.round(validInterviews.reduce((acc, h) => acc + h.result.overallScore, 0) / validInterviews.length)
     };
   }, [history]);
 
