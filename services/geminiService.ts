@@ -177,6 +177,16 @@ export class GeminiService {
       Follow-up Defense: ${followUpTranscript}
       
       ${specializedRubric}
+
+      LOGIC MAPPING INSTRUCTIONS:
+      - userLogicPath: Break down the user's response into a sequence of logical steps (e.g., ["Assumptions", "User Segmentation", "Feature Idea"]).
+      - goldenPath: Provide the ideal Staff-level sequence.
+
+      SCORING INSTRUCTIONS:
+      - ALL scores (overallScore, visionScore, defenseScore, defensivePivotScore, rubricScores, confidenceScore, clarityScore) MUST be on a 0-100 scale.
+      - 0-59: Needs Work
+      - 60-79: Average/Senior
+      - 80-100: Staff/Bar-Raiser
     `;
 
     const responseSchema = {
@@ -185,7 +195,10 @@ export class GeminiService {
         overallScore: { type: Type.NUMBER },
         visionScore: { type: Type.NUMBER },
         defenseScore: { type: Type.NUMBER },
-        userLogicPath: { type: Type.STRING },
+        userLogicPath: { 
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        },
         defensivePivotScore: { type: Type.NUMBER },
         defensivePivotAnalysis: { type: Type.STRING },
         rubricScores: {
@@ -285,14 +298,33 @@ export class GeminiService {
       ]
     };
 
-    const formatResult = (data: any): InterviewResult => ({
-      ...data,
-      transcription: initialTranscript,
-      followUpQuestions,
-      followUpTranscription: followUpTranscript,
-      strengths: data.rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
-      weaknesses: data.rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
-    });
+    const formatResult = (data: any): InterviewResult => {
+      // Sanity check: Ensure all scores are 0-100
+      const scaleScore = (s: any) => (typeof s === 'number' && s <= 10) ? s * 10 : s;
+      
+      const scaledData = {
+        ...data,
+        overallScore: scaleScore(data.overallScore),
+        visionScore: scaleScore(data.visionScore),
+        defenseScore: scaleScore(data.defenseScore),
+        defensivePivotScore: scaleScore(data.defensivePivotScore),
+        rubricScores: data.rubricScores.map((s: any) => ({ ...s, score: scaleScore(s.score) })),
+        communicationAnalysis: {
+          ...data.communicationAnalysis,
+          confidenceScore: scaleScore(data.communicationAnalysis.confidenceScore),
+          clarityScore: scaleScore(data.communicationAnalysis.clarityScore)
+        }
+      };
+
+      return {
+        ...scaledData,
+        transcription: initialTranscript,
+        followUpQuestions,
+        followUpTranscription: followUpTranscript,
+        strengths: scaledData.rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
+        weaknesses: scaledData.rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
+      };
+    };
 
     return this.withRetry(async () => {
       try {

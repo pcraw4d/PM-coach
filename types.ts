@@ -70,6 +70,8 @@ export interface TranscriptAnnotation {
   text: string;
   type: 'strength' | 'weakness' | 'qualifier' | 'neutral';
   feedback?: string;
+  whyItMatters?: string;
+  uid?: string;
 }
 
 export interface GoldenPathStep {
@@ -87,7 +89,7 @@ export interface InterviewResult {
   followUpTranscription: string;
   followUpQuestions: string[];
   
-  userLogicPath: string; 
+  userLogicPath: string[]; 
   defensivePivotScore: number; 
   defensivePivotAnalysis: string; 
   
