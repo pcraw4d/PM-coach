@@ -143,7 +143,8 @@ export class GeminiService {
 
   /**
    * PASS 2: Deep Logic Audit using Pro.
-   * Split into Phase A and Phase B to ensure reliability and depth.
+   * Uses a single request with ThinkingLevel.LOW for better reliability.
+   * Includes a Flash fallback if Pro fails or times out.
    */
   async analyzeFullSession(
     type: InterviewType, 
@@ -166,7 +167,7 @@ export class GeminiService {
       3. INCREMENTAL LIFT: Absolute growth vs cannibalization.
     `;
 
-    const commonContext = `
+    const prompt = `
       ACT AS A STAFF PM BAR-RAISER.
       Align with Lenny's Newsletter standards.
 
@@ -178,152 +179,156 @@ export class GeminiService {
       ${specializedRubric}
     `;
 
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        overallScore: { type: Type.NUMBER },
+        visionScore: { type: Type.NUMBER },
+        defenseScore: { type: Type.NUMBER },
+        userLogicPath: { type: Type.STRING },
+        defensivePivotScore: { type: Type.NUMBER },
+        defensivePivotAnalysis: { type: Type.STRING },
+        rubricScores: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              category: { type: Type.STRING },
+              score: { type: Type.NUMBER },
+              reasoning: { type: Type.STRING }
+            },
+            required: ["category", "score", "reasoning"]
+          }
+        },
+        improvementItems: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              category: { type: Type.STRING },
+              action: { type: Type.STRING },
+              howTo: { type: Type.STRING },
+              whyItMatters: { type: Type.STRING },
+              effort: { type: Type.STRING },
+              impact: { type: Type.STRING }
+            },
+            required: ["category", "action", "howTo", "whyItMatters", "effort", "impact"]
+          }
+        },
+        communicationAnalysis: {
+          type: Type.OBJECT,
+          properties: {
+            tone: { type: Type.STRING },
+            confidenceScore: { type: Type.NUMBER },
+            clarityScore: { type: Type.NUMBER },
+            overallAssessment: { type: Type.STRING },
+            summary: { type: Type.STRING }
+          },
+          required: ["tone", "confidenceScore", "clarityScore", "overallAssessment", "summary"]
+        },
+        annotatedVision: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING },
+              type: { type: Type.STRING },
+              feedback: { type: Type.STRING }
+            },
+            required: ["text", "type", "feedback"]
+          }
+        },
+        annotatedDefense: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING },
+              type: { type: Type.STRING },
+              feedback: { type: Type.STRING }
+            },
+            required: ["text", "type", "feedback"]
+          }
+        },
+        goldenPath: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              content: { type: Type.STRING },
+              why: { type: Type.STRING },
+              strategicTradeOffs: { type: Type.STRING }
+            },
+            required: ["title", "content", "why", "strategicTradeOffs"]
+          }
+        },
+        recommendedResources: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              url: { type: Type.STRING },
+              type: { type: Type.STRING }
+            },
+            required: ["title", "url", "type"]
+          }
+        },
+        benchmarkResponse: { type: Type.STRING }
+      },
+      required: [
+        "overallScore", "visionScore", "defenseScore", "userLogicPath", 
+        "defensivePivotScore", "defensivePivotAnalysis", "rubricScores", 
+        "improvementItems", "communicationAnalysis", "annotatedVision", 
+        "annotatedDefense", "goldenPath", "recommendedResources", "benchmarkResponse"
+      ]
+    };
+
+    const formatResult = (data: any): InterviewResult => ({
+      ...data,
+      transcription: initialTranscript,
+      followUpQuestions,
+      followUpTranscription: followUpTranscript,
+      strengths: data.rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
+      weaknesses: data.rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
+    });
+
     return this.withRetry(async () => {
-      // Phase A: Scoring, Logic Path, and Rubric Analysis
-      const phaseAPromise = ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: `${commonContext}\n\nPHASE A: Analyze the overall logic, scoring, and rubric alignment.`,
+      try {
+        // Attempt Pro Audit with lower thinking level for stability
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.1-pro-preview',
+          contents: prompt,
+          config: { 
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            responseSchema: responseSchema
+          }
+        });
+        const data = this.extractJson(response.text || "");
+        if (data) return formatResult(data);
+      } catch (e) {
+        console.warn("[GeminiService] Pro Audit failed or timed out, falling back to Flash:", e);
+      }
+
+      // Fallback to Flash for guaranteed completion
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
         config: { 
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              overallScore: { type: Type.NUMBER },
-              visionScore: { type: Type.NUMBER },
-              defenseScore: { type: Type.NUMBER },
-              userLogicPath: { type: Type.STRING },
-              defensivePivotScore: { type: Type.NUMBER },
-              defensivePivotAnalysis: { type: Type.STRING },
-              rubricScores: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING },
-                    score: { type: Type.NUMBER },
-                    reasoning: { type: Type.STRING }
-                  },
-                  required: ["category", "score", "reasoning"]
-                }
-              },
-              improvementItems: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    category: { type: Type.STRING },
-                    action: { type: Type.STRING },
-                    howTo: { type: Type.STRING },
-                    whyItMatters: { type: Type.STRING },
-                    effort: { type: Type.STRING },
-                    impact: { type: Type.STRING }
-                  },
-                  required: ["category", "action", "howTo", "whyItMatters", "effort", "impact"]
-                }
-              },
-              communicationAnalysis: {
-                type: Type.OBJECT,
-                properties: {
-                  tone: { type: Type.STRING },
-                  confidenceScore: { type: Type.NUMBER },
-                  clarityScore: { type: Type.NUMBER },
-                  overallAssessment: { type: Type.STRING },
-                  summary: { type: Type.STRING }
-                },
-                required: ["tone", "confidenceScore", "clarityScore", "overallAssessment", "summary"]
-              }
-            },
-            required: ["overallScore", "visionScore", "defenseScore", "userLogicPath", "defensivePivotScore", "defensivePivotAnalysis", "rubricScores", "improvementItems", "communicationAnalysis"]
-          }
+          responseSchema: responseSchema
         }
       });
-
-      // Phase B: Detailed Annotations and the "Benchmark Response" script
-      const phaseBPromise = ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: `${commonContext}\n\nPHASE B: Provide detailed transcript annotations and a Staff-level benchmark response.`,
-        config: { 
-          responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              annotatedVision: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    text: { type: Type.STRING },
-                    type: { type: Type.STRING },
-                    feedback: { type: Type.STRING }
-                  },
-                  required: ["text", "type", "feedback"]
-                }
-              },
-              annotatedDefense: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    text: { type: Type.STRING },
-                    type: { type: Type.STRING },
-                    feedback: { type: Type.STRING }
-                  },
-                  required: ["text", "type", "feedback"]
-                }
-              },
-              goldenPath: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    content: { type: Type.STRING },
-                    why: { type: Type.STRING },
-                    strategicTradeOffs: { type: Type.STRING }
-                  },
-                  required: ["title", "content", "why", "strategicTradeOffs"]
-                }
-              },
-              recommendedResources: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    url: { type: Type.STRING },
-                    type: { type: Type.STRING }
-                  },
-                  required: ["title", "url", "type"]
-                }
-              },
-              benchmarkResponse: { type: Type.STRING }
-            },
-            required: ["annotatedVision", "annotatedDefense", "goldenPath", "recommendedResources", "benchmarkResponse"]
-          }
-        }
-      });
-
-      const [resA, resB] = await Promise.all([phaseAPromise, phaseBPromise]);
       
-      const dataA = this.extractJson(resA.text || "");
-      const dataB = this.extractJson(resB.text || "");
-
-      if (!dataA || !dataB) {
-        console.error("[GeminiService] Audit phase failure. Phase A:", !!dataA, "Phase B:", !!dataB);
-        throw new Error("Critical JSON failure: One or more audit phases were incomplete or corrupted.");
+      const data = this.extractJson(response.text || "");
+      if (!data) {
+        console.error("[GeminiService] Flash fallback also failed to return valid JSON.");
+        throw new Error("Critical JSON failure: The audit response was incomplete or corrupted.");
       }
       
-      return { 
-        ...dataA,
-        ...dataB,
-        transcription: initialTranscript, 
-        followUpQuestions, 
-        followUpTranscription: followUpTranscript,
-        strengths: dataA.rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
-        weaknesses: dataA.rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
-      };
+      return formatResult(data);
     });
   }
 

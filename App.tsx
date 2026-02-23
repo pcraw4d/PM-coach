@@ -170,6 +170,7 @@ const App: React.FC = () => {
       sessionStorage.clear();
       setHasCheckpoint(false);
     } catch (err: any) {
+      console.error("[Staff Audit Error]", err);
       setApiError("Staff Audit failed. Your text is saved—you can retry from the dashboard.");
       setPhase('config');
     } finally {
