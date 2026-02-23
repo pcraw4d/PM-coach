@@ -23,7 +23,10 @@ export class GeminiService {
         endIdx = cleaned.lastIndexOf('}');
       }
       
-      if (startIdx === -1) return null;
+      if (startIdx === -1) {
+        console.error("[GeminiService] No JSON structure found in text:", text);
+        return null;
+      }
 
       if (endIdx === -1 || endIdx <= startIdx) {
         let fragment = cleaned.substring(startIdx);
@@ -36,6 +39,7 @@ export class GeminiService {
         try {
           return JSON.parse(fragment);
         } catch (e) {
+          console.error("[GeminiService] Failed to parse JSON fragment:", fragment, e);
           return null;
         }
       }
@@ -44,6 +48,7 @@ export class GeminiService {
       const sanitized = jsonCandidate.replace(/,\s*([\]}])/g, '$1');
       return JSON.parse(sanitized);
     } catch (e) {
+      console.error("[GeminiService] JSON extraction failed. Raw text:", text, e);
       return null;
     }
   }
@@ -113,13 +118,24 @@ export class GeminiService {
         
         Identify 2 Staff-level aggressive follow-up questions.
         Context: ${trackContext}
-        JSON: {followUpQuestions: string[]}
       `;
       
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
-        config: { responseMimeType: "application/json" }
+        config: { 
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              followUpQuestions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["followUpQuestions"]
+          }
+        }
       });
       return this.extractJson(response.text || "");
     });
@@ -127,8 +143,7 @@ export class GeminiService {
 
   /**
    * PASS 2: Deep Logic Audit using Pro.
-   * Maximized Thinking Budget (32768) to ensure non-obvious reasoning.
-   * Streaming prevents connection drops for 30-minute session summaries.
+   * Split into Phase A and Phase B to ensure reliability and depth.
    */
   async analyzeFullSession(
     type: InterviewType, 
@@ -151,7 +166,7 @@ export class GeminiService {
       3. INCREMENTAL LIFT: Absolute growth vs cannibalization.
     `;
 
-    const prompt = `
+    const commonContext = `
       ACT AS A STAFF PM BAR-RAISER.
       Align with Lenny's Newsletter standards.
 
@@ -161,49 +176,153 @@ export class GeminiService {
       Follow-up Defense: ${followUpTranscript}
       
       ${specializedRubric}
-
-      RETURN JSON SCHEMA:
-      {
-        "overallScore": number,
-        "visionScore": number,
-        "defenseScore": number,
-        "userLogicPath": "Brief path summary",
-        "defensivePivotScore": number,
-        "defensivePivotAnalysis": "Consistency check",
-        "annotatedVision": [{ "text": string, "type": "strength"|"weakness"|"qualifier", "feedback": "Critique + REWRITE + ACTION" }],
-        "annotatedDefense": [{ "text": string, "type": "strength"|"weakness"|"qualifier", "feedback": "Critique + REWRITE + ACTION" }],
-        "goldenPath": [{ "title": string, "content": string, "why": string, "strategicTradeOffs": string }],
-        "rubricScores": [{ "category": string, "score": number, "reasoning": string }],
-        "improvementItems": [{ "category": string, "action": string, "howTo": string, "whyItMatters": string, "effort": "Low"|"Medium"|"High", "impact": "Low"|"Medium"|"High" }],
-        "recommendedResources": [{ "title": string, "url": string, "type": "reading" }],
-        "communicationAnalysis": { "tone": string, "confidenceScore": number, "clarityScore": number, "overallAssessment": "Strong"|"Average"|"Needs Work", "summary": string },
-        "benchmarkResponse": "Complete Staff-level script"
-      }
     `;
 
     return this.withRetry(async () => {
-      const stream = await ai.models.generateContentStream({
+      // Phase A: Scoring, Logic Path, and Rubric Analysis
+      const phaseAPromise = ai.models.generateContent({
         model: 'gemini-3.1-pro-preview',
-        contents: prompt,
+        contents: `${commonContext}\n\nPHASE A: Analyze the overall logic, scoring, and rubric alignment.`,
         config: { 
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH } 
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              overallScore: { type: Type.NUMBER },
+              visionScore: { type: Type.NUMBER },
+              defenseScore: { type: Type.NUMBER },
+              userLogicPath: { type: Type.STRING },
+              defensivePivotScore: { type: Type.NUMBER },
+              defensivePivotAnalysis: { type: Type.STRING },
+              rubricScores: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    category: { type: Type.STRING },
+                    score: { type: Type.NUMBER },
+                    reasoning: { type: Type.STRING }
+                  },
+                  required: ["category", "score", "reasoning"]
+                }
+              },
+              improvementItems: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    category: { type: Type.STRING },
+                    action: { type: Type.STRING },
+                    howTo: { type: Type.STRING },
+                    whyItMatters: { type: Type.STRING },
+                    effort: { type: Type.STRING },
+                    impact: { type: Type.STRING }
+                  },
+                  required: ["category", "action", "howTo", "whyItMatters", "effort", "impact"]
+                }
+              },
+              communicationAnalysis: {
+                type: Type.OBJECT,
+                properties: {
+                  tone: { type: Type.STRING },
+                  confidenceScore: { type: Type.NUMBER },
+                  clarityScore: { type: Type.NUMBER },
+                  overallAssessment: { type: Type.STRING },
+                  summary: { type: Type.STRING }
+                },
+                required: ["tone", "confidenceScore", "clarityScore", "overallAssessment", "summary"]
+              }
+            },
+            required: ["overallScore", "visionScore", "defenseScore", "userLogicPath", "defensivePivotScore", "defensivePivotAnalysis", "rubricScores", "improvementItems", "communicationAnalysis"]
+          }
         }
       });
 
-      let fullText = "";
-      for await (const chunk of stream) {
-        fullText += (chunk as GenerateContentResponse).text || "";
-      }
+      // Phase B: Detailed Annotations and the "Benchmark Response" script
+      const phaseBPromise = ai.models.generateContent({
+        model: 'gemini-3.1-pro-preview',
+        contents: `${commonContext}\n\nPHASE B: Provide detailed transcript annotations and a Staff-level benchmark response.`,
+        config: { 
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              annotatedVision: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    text: { type: Type.STRING },
+                    type: { type: Type.STRING },
+                    feedback: { type: Type.STRING }
+                  },
+                  required: ["text", "type", "feedback"]
+                }
+              },
+              annotatedDefense: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    text: { type: Type.STRING },
+                    type: { type: Type.STRING },
+                    feedback: { type: Type.STRING }
+                  },
+                  required: ["text", "type", "feedback"]
+                }
+              },
+              goldenPath: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    content: { type: Type.STRING },
+                    why: { type: Type.STRING },
+                    strategicTradeOffs: { type: Type.STRING }
+                  },
+                  required: ["title", "content", "why", "strategicTradeOffs"]
+                }
+              },
+              recommendedResources: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    url: { type: Type.STRING },
+                    type: { type: Type.STRING }
+                  },
+                  required: ["title", "url", "type"]
+                }
+              },
+              benchmarkResponse: { type: Type.STRING }
+            },
+            required: ["annotatedVision", "annotatedDefense", "goldenPath", "recommendedResources", "benchmarkResponse"]
+          }
+        }
+      });
 
-      const data = this.extractJson(fullText);
-      if (!data) throw new Error("Critical JSON failure: The audit response was incomplete or corrupted.");
+      const [resA, resB] = await Promise.all([phaseAPromise, phaseBPromise]);
+      
+      const dataA = this.extractJson(resA.text || "");
+      const dataB = this.extractJson(resB.text || "");
+
+      if (!dataA || !dataB) {
+        console.error("[GeminiService] Audit phase failure. Phase A:", !!dataA, "Phase B:", !!dataB);
+        throw new Error("Critical JSON failure: One or more audit phases were incomplete or corrupted.");
+      }
       
       return { 
-        ...data, 
+        ...dataA,
+        ...dataB,
         transcription: initialTranscript, 
         followUpQuestions, 
-        followUpTranscription: followUpTranscript 
+        followUpTranscription: followUpTranscript,
+        strengths: dataA.rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
+        weaknesses: dataA.rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
       };
     });
   }
@@ -213,17 +332,27 @@ export class GeminiService {
     const prompt = `
       Verify if the user successfully bridged this gap: "${delta.action}".
       Look for: Executive presence and precise PM terminology.
-      Return JSON: { "success": boolean, "feedback": "Critique focusing on technical phrasing." }
     `;
 
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] },
-        config: { responseMimeType: "application/json" }
+        config: { 
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              success: { type: Type.BOOLEAN },
+              feedback: { type: Type.STRING }
+            },
+            required: ["success", "feedback"]
+          }
+        }
       });
       return this.extractJson(response.text || "");
     } catch (e) {
+      console.error("[GeminiService] Delta practice verification failed:", e);
       return { success: false, feedback: "Verification timed out." };
     }
   }
