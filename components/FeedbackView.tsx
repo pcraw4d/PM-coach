@@ -791,6 +791,8 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
   const [expandedRubric, setExpandedRubric] = useState<number | null>(null);
   const [selectedRubricIndex, setSelectedRubricIndex] = useState<number | null>(null);
 
+  const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
+
   const commData = useMemo(() => [
     { category: 'Confidence', value: result.communicationAnalysis?.confidenceScore || 0, full: 100 },
     { category: 'Clarity', value: result.communicationAnalysis?.clarityScore || 0, full: 100 },
@@ -863,32 +865,84 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto max-h-[280px] pr-2 no-scrollbar space-y-4">
-                <div className="relative pl-8 space-y-8">
+              {/* Actionable Summary at the Top */}
+              <div className="bg-indigo-500/10 p-6 rounded-[2rem] border border-indigo-500/20 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
+                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] block mb-3">Core Strategic Gap</span>
+                <p className="text-[13px] text-slate-200 font-bold leading-relaxed relative z-10">
+                  Your logic bypasses critical ecosystem anchoring, jumping directly to execution. To reach Staff level, you must first define the defensive moat and revenue goals before diving into platform constraints. This ensures your solution is not just functional, but strategically defensible.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto max-h-[400px] pr-2 no-scrollbar space-y-4">
+                <div className="relative pl-8 space-y-6">
                   <div className="absolute left-2 top-2 bottom-2 w-px bg-slate-800"></div>
                   
-                  {Array.isArray(result.userLogicPath) ? result.userLogicPath.map((step, i) => (
-                    <div key={i} className="relative group/step">
-                      <div className="absolute -left-[29px] top-1.5 w-3 h-3 rounded-full bg-slate-800 border-2 border-slate-900 group-hover/step:bg-rose-500 group-hover/step:border-rose-500/30 transition-all z-10"></div>
-                      <div className="space-y-2">
-                        <p className="text-[12px] text-slate-500 line-through decoration-rose-500/40 font-bold leading-tight transition-colors group-hover/step:text-slate-400">{step}</p>
-                        <div className="flex items-center space-x-3 bg-indigo-500/5 p-2 rounded-xl border border-indigo-500/10 group-hover/step:bg-indigo-500/10 transition-all">
-                          <ArrowRight className="w-3 h-3 text-indigo-400" />
-                          <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Staff Pivot Required</span>
+                  {Array.isArray(result.userLogicPath) ? result.userLogicPath.map((step, i) => {
+                    const isExpanded = expandedStepIndex === i;
+                    // Try to find a matching golden step for the "Staff Pivot"
+                    const matchingGoldenStep = result.goldenPath.find(gs => 
+                      gs.title.toLowerCase().split(' ').some(kw => kw.length > 4 && step.toLowerCase().includes(kw))
+                    ) || result.goldenPath[Math.min(i, result.goldenPath.length - 1)];
+
+                    return (
+                      <div key={i} className="relative group/step">
+                        <div className={`absolute -left-[29px] top-1.5 w-3 h-3 rounded-full border-2 transition-all z-10 ${
+                          isExpanded ? 'bg-indigo-500 border-indigo-500/30 scale-125 shadow-[0_0_10px_rgba(99,102,241,0.5)]' : 'bg-slate-800 border-slate-900 group-hover/step:bg-rose-500 group-hover/step:border-rose-500/30'
+                        }`}></div>
+                        
+                        <div className="space-y-3">
+                          <button 
+                            onClick={() => setExpandedStepIndex(isExpanded ? null : i)}
+                            className="w-full text-left space-y-2 group/btn"
+                          >
+                            <p className={`text-[12px] font-bold leading-tight transition-colors ${
+                              isExpanded ? 'text-indigo-300' : 'text-slate-500 line-through decoration-rose-500/40 group-hover/btn:text-slate-400'
+                            }`}>
+                              {step}
+                            </p>
+                            <div className={`flex items-center justify-between bg-indigo-500/5 p-2 px-3 rounded-xl border transition-all ${
+                              isExpanded ? 'bg-indigo-500/20 border-indigo-500/30' : 'border-indigo-500/10 group-hover/btn:bg-indigo-500/10'
+                            }`}>
+                              <div className="flex items-center space-x-3">
+                                <ArrowRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90 text-indigo-400' : 'text-indigo-400'}`} />
+                                <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">
+                                  {isExpanded ? 'Staff Correction' : 'Staff Pivot Required'}
+                                </span>
+                              </div>
+                              {isExpanded ? <ChevronUp className="w-3 h-3 text-indigo-400" /> : <ChevronDown className="w-3 h-3 text-indigo-400" />}
+                            </div>
+                          </button>
+
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div 
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="bg-white/5 p-4 rounded-2xl border border-white/10 space-y-3 mt-2">
+                                  <div className="flex items-center space-x-2">
+                                    <div className="w-1 h-3 bg-emerald-500 rounded-full"></div>
+                                    <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Staff Standard</span>
+                                  </div>
+                                  <p className="text-[13px] text-white font-bold leading-relaxed">
+                                    {matchingGoldenStep.title}
+                                  </p>
+                                  <p className="text-[12px] text-slate-400 font-medium leading-relaxed italic">
+                                    {matchingGoldenStep.why}
+                                  </p>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </div>
-                    </div>
-                  )) : (
+                    );
+                  }) : (
                     <p className="text-slate-500 italic text-xs">No structured path detected.</p>
                   )}
-                </div>
-              </div>
-              
-              <div className="pt-6 border-t border-white/5">
-                <div className="bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10 italic">
-                  <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
-                    "Your logic jumps straight to execution. Staff PMs anchor in the ecosystem first to build defensibility."
-                  </p>
                 </div>
               </div>
             </div>
