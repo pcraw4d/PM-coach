@@ -179,8 +179,8 @@ export class GeminiService {
       ${specializedRubric}
 
       LOGIC MAPPING INSTRUCTIONS:
-      - userLogicPath: Break down the user's response into a sequence of logical steps (e.g., ["Assumptions", "User Segmentation", "Feature Idea"]).
-      - goldenPath: Provide the ideal Staff-level sequence.
+      - userLogicPath: Break down the user's response into a sequence of logical steps. For each step, determine if it aligns with the Staff Golden Path (isAligned). If it does NOT align, provide a specific 'staffPivot' explaining the tactical correction for that specific line.
+      - goldenPath: Provide the ideal Staff-level sequence. MUST be at least 5 steps long to ensure a comprehensive strategic map.
 
       SCORING INSTRUCTIONS:
       - ALL scores (overallScore, visionScore, defenseScore, defensivePivotScore, rubricScores, confidenceScore, clarityScore) MUST be on a 0-100 scale.
@@ -197,7 +197,15 @@ export class GeminiService {
         defenseScore: { type: Type.NUMBER },
         userLogicPath: { 
           type: Type.ARRAY,
-          items: { type: Type.STRING }
+          items: { 
+            type: Type.OBJECT,
+            properties: {
+              step: { type: Type.STRING },
+              isAligned: { type: Type.BOOLEAN },
+              staffPivot: { type: Type.STRING }
+            },
+            required: ["step", "isAligned"]
+          }
         },
         defensivePivotScore: { type: Type.NUMBER },
         defensivePivotAnalysis: { type: Type.STRING },

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep } from '../types.ts';
+import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep, UserLogicStep } from '../types.ts';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -155,18 +155,9 @@ const HowToRenderer: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[] }> = ({ userPath, goldenPath }) => {
-  // Simple heuristic to check if a golden step was "hit" by the user
-  const checkStepHit = (goldenStep: GoldenPathStep) => {
-    const keywords = goldenStep.title.toLowerCase().split(' ').filter(w => w.length > 3);
-    return userPath.some(up => {
-      const upLower = up.toLowerCase();
-      return keywords.some(kw => upLower.includes(kw));
-    });
-  };
-
-  const hits = goldenPath.filter(step => checkStepHit(step)).length;
-  const completionRate = Math.round((hits / goldenPath.length) * 100);
+const LogicFlowchart: React.FC<{ userPath: UserLogicStep[]; goldenPath: GoldenPathStep[] }> = ({ userPath, goldenPath }) => {
+  const hits = userPath.filter(step => step.isAligned).length;
+  const completionRate = Math.round((hits / Math.max(userPath.length, 1)) * 100);
 
   return (
     <div className="bg-slate-900 p-12 lg:p-16 rounded-[4rem] text-white shadow-2xl border border-white/5 relative overflow-hidden">
@@ -182,7 +173,7 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
               <h3 className="text-4xl font-black uppercase tracking-tighter text-white">Strategic Logic Flow</h3>
               <div className="flex items-center space-x-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
-                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em]">Staff Golden Path Analysis</span>
+                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em]">User Logic Path Analysis</span>
               </div>
             </div>
           </div>
@@ -209,10 +200,10 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
           </div>
           <div className="space-y-1">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Logic Integrity</p>
-            <p className="text-2xl font-black text-white">{hits}/{goldenPath.length} Links Hit</p>
+            <p className="text-2xl font-black text-white">{hits}/{userPath.length} Aligned</p>
             <div className="flex gap-1">
-              {goldenPath.map((_, i) => (
-                <div key={i} className={`h-1 w-4 rounded-full ${i < hits ? 'bg-indigo-500' : 'bg-slate-800'}`}></div>
+              {userPath.map((step, i) => (
+                <div key={i} className={`h-1 w-4 rounded-full ${step.isAligned ? 'bg-indigo-500' : 'bg-rose-500'}`}></div>
               ))}
             </div>
           </div>
@@ -221,35 +212,40 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
 
       <div className="relative z-10">
         <div className="flex flex-col space-y-0">
-          {goldenPath.map((step, i) => {
-            const isHit = checkStepHit(step);
-            const nextIsHit = i < goldenPath.length - 1 ? checkStepHit(goldenPath[i+1]) : true;
+          {userPath.map((stepObj, i) => {
+            const isAligned = stepObj.isAligned;
+            const nextIsAligned = i < userPath.length - 1 ? userPath[i+1].isAligned : true;
+            
+            // Try to find a matching golden step for the tooltip
+            const matchingGoldenStep = goldenPath.find(gs => 
+              gs.title.toLowerCase().split(' ').some(kw => kw.length > 4 && stepObj.step.toLowerCase().includes(kw))
+            ) || goldenPath[Math.min(i, goldenPath.length - 1)];
             
             return (
               <div key={i} className="relative">
                 {/* Vertical Connector Line with dynamic color and animation */}
-                {i < goldenPath.length - 1 && (
-                  <div className="absolute left-[31px] top-16 bottom-0 w-0.5 overflow-hidden">
-                    <div className={`h-full w-full transition-colors duration-1000 ${
-                      isHit && nextIsHit 
-                        ? 'bg-emerald-500/30' 
-                        : 'bg-rose-500/20'
+                {i < userPath.length - 1 && (
+                  <div className="absolute left-[31px] top-16 bottom-0 flex justify-center w-1">
+                    <div className={`h-full w-1 transition-colors duration-1000 ${
+                      isAligned && nextIsAligned 
+                        ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' 
+                        : 'bg-transparent border-l-[3px] border-dashed border-rose-500/60'
                     }`}></div>
-                    {(!isHit || !nextIsHit) && (
+                    {(!isAligned || !nextIsAligned) && (
                       <motion.div 
                         animate={{ y: [0, 100, 0] }}
                         transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                        className="absolute inset-0 bg-gradient-to-b from-transparent via-rose-500/40 to-transparent h-20"
+                        className="absolute top-0 left-1/2 -translate-x-1/2 bg-gradient-to-b from-transparent via-rose-500 to-transparent h-20 w-1"
                       />
                     )}
                   </div>
                 )}
 
                 {/* Missing Link Indicator between nodes */}
-                {i < goldenPath.length - 1 && !isHit && (
-                  <div className="absolute left-[18px] top-[100px] z-20">
-                    <div className="bg-rose-500/20 border border-rose-500/30 px-2 py-0.5 rounded-full backdrop-blur-sm">
-                      <span className="text-[7px] font-black text-rose-400 uppercase tracking-widest">Broken Link</span>
+                {i < userPath.length - 1 && (!isAligned || !nextIsAligned) && (
+                  <div className="absolute left-[14px] top-[100px] z-20">
+                    <div className="bg-rose-900/90 border border-rose-500 px-2 py-0.5 rounded-full backdrop-blur-sm shadow-[0_0_15px_rgba(244,63,94,0.4)]">
+                      <span className="text-[8px] font-black text-rose-300 uppercase tracking-widest">Broken Link</span>
                     </div>
                   </div>
                 )}
@@ -263,11 +259,11 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
                 >
                   {/* Node Icon */}
                   <div className={`relative z-10 w-16 h-16 rounded-[1.5rem] flex items-center justify-center border-2 transition-all duration-700 shrink-0 group-hover/node:scale-110 ${
-                    isHit 
+                    isAligned 
                       ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_40px_rgba(16,185,129,0.1)]' 
                       : 'bg-rose-500/10 border-rose-500/50 shadow-[0_0_40px_rgba(244,63,94,0.1)]'
                   }`}>
-                    {isHit ? (
+                    {isAligned ? (
                       <CheckCircle2 className="w-8 h-8 text-emerald-400" />
                     ) : (
                       <AlertCircle className="w-8 h-8 text-rose-400 animate-pulse" />
@@ -279,18 +275,40 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
 
                   {/* Step Card */}
                   <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-10">
-                    <div className={`lg:col-span-7 p-10 rounded-[3rem] border transition-all duration-500 relative overflow-hidden ${
-                      isHit 
-                        ? 'bg-white/5 border-white/10 hover:bg-white/[0.08]' 
-                        : 'bg-rose-500/5 border-rose-500/20 hover:bg-rose-500/10'
+                    <div className={`lg:col-span-7 p-10 rounded-[3rem] border transition-all duration-500 relative overflow-visible ${
+                      isAligned 
+                        ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10' 
+                        : 'bg-rose-500/10 border-rose-500/30 hover:bg-rose-500/20'
                     }`}>
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
+                      <div className={`absolute top-0 right-0 w-32 h-32 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none ${
+                        isAligned ? 'bg-emerald-500/10' : 'bg-rose-500/10'
+                      }`}></div>
                       
                       <div className="flex items-center justify-between mb-6 relative z-10">
-                        <h4 className={`text-2xl font-black tracking-tight ${isHit ? 'text-white' : 'text-rose-400'}`}>
-                          {step.title}
-                        </h4>
-                        {!isHit && (
+                        <div className="flex items-center">
+                          <h4 className={`text-xl font-black tracking-tight ${isAligned ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {stepObj.step}
+                          </h4>
+                          {/* Interactive Tooltip for Staff Rationale */}
+                          <div className="relative group/tooltip inline-block ml-3">
+                            <div className={`p-1.5 rounded-full cursor-help transition-colors ${
+                              isAligned ? 'bg-emerald-500/20 hover:bg-emerald-500/40' : 'bg-rose-500/20 hover:bg-rose-500/40'
+                            }`}>
+                              <Lightbulb className={`w-4 h-4 ${isAligned ? 'text-emerald-400' : 'text-rose-400'}`} />
+                            </div>
+                            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-72 p-5 bg-slate-800 text-white text-sm rounded-2xl opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible transition-all z-50 shadow-2xl border ${
+                              isAligned ? 'border-emerald-500/30' : 'border-rose-500/30'
+                            }`}>
+                              <div className="flex items-center space-x-2 mb-2">
+                                <Lightbulb className={`w-4 h-4 ${isAligned ? 'text-emerald-400' : 'text-rose-400'}`} />
+                                <span className={`font-black text-[10px] uppercase tracking-widest ${isAligned ? 'text-emerald-400' : 'text-rose-400'}`}>Staff Rationale</span>
+                              </div>
+                              <p className="text-slate-300 leading-relaxed text-[13px] font-medium">{matchingGoldenStep.why}</p>
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-800"></div>
+                            </div>
+                          </div>
+                        </div>
+                        {!isAligned && (
                           <div className="flex items-center space-x-2 bg-rose-500/20 px-4 py-1.5 rounded-full border border-rose-500/30 shadow-lg">
                             <ShieldAlert className="w-4 h-4 text-rose-400" />
                             <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Critical Gap</span>
@@ -298,26 +316,22 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
                         )}
                       </div>
                       
-                      <p className="text-slate-300 text-[15px] font-medium leading-relaxed mb-8 relative z-10">
-                        {step.content}
-                      </p>
-
-                      <div className="bg-indigo-500/10 p-6 rounded-3xl border border-indigo-500/20 relative z-10 group/rationale hover:bg-indigo-500/20 transition-all">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="p-1.5 bg-indigo-500/20 rounded-lg">
-                            <Lightbulb className="w-4 h-4 text-indigo-400" />
+                      {!isAligned && (
+                        <div className="mt-6 bg-rose-500/10 p-5 rounded-2xl border border-rose-500/20 relative z-10">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <ArrowRight className="w-4 h-4 text-rose-400" />
+                            <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Staff Pivot</span>
                           </div>
-                          <span className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.2em]">Staff Rationale</span>
+                          <p className="text-[14px] text-slate-200 font-medium leading-relaxed">
+                            {stepObj.staffPivot || "Realign with Staff Logic."}
+                          </p>
                         </div>
-                        <p className="text-[13px] text-slate-400 italic leading-relaxed font-medium">
-                          {step.why}
-                        </p>
-                      </div>
+                      )}
                     </div>
 
                     {/* Analysis Column */}
                     <div className="lg:col-span-5 flex flex-col justify-center space-y-6">
-                      {!isHit ? (
+                      {!isAligned ? (
                         <div className="space-y-6">
                           <div className="bg-rose-500/10 p-8 rounded-[2.5rem] border border-rose-500/20 shadow-xl hover:bg-rose-500/20 transition-all group/missing">
                             <div className="flex items-center space-x-3 mb-4">
@@ -325,7 +339,7 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
                               <p className="text-[11px] font-black text-rose-400 uppercase tracking-[0.2em]">The Missing Link</p>
                             </div>
                             <p className="text-[14px] text-slate-200 font-bold leading-relaxed">
-                              {step.strategicTradeOffs || "Skipping this step makes your strategy reactive rather than proactive. You missed the opportunity to define the competitive moat."}
+                              {matchingGoldenStep.strategicTradeOffs || "Skipping this step makes your strategy reactive rather than proactive. You missed the opportunity to define the competitive moat."}
                             </p>
                           </div>
                           <div className="flex items-center space-x-3 text-rose-400/60 px-6">
@@ -342,7 +356,7 @@ const LogicFlowchart: React.FC<{ userPath: string[]; goldenPath: GoldenPathStep[
                             <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">Strategic Alignment</span>
                           </div>
                           <p className="text-[14px] text-slate-200 font-bold leading-relaxed italic">
-                            "Strong signal. You correctly identified the {step.title.toLowerCase()} phase, which is a key differentiator for Staff-level candidates."
+                            "Strong signal. You correctly identified the {matchingGoldenStep.title.toLowerCase()} phase, which is a key differentiator for Staff-level candidates."
                           </p>
                         </div>
                       )}
@@ -682,106 +696,106 @@ const RubricDetailModal: React.FC<{
   reasoning: string;
   standard?: { standard: string; examples: string[] };
 }> = ({ isOpen, onClose, category, score, reasoning, standard }) => {
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-        <motion.div 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="absolute inset-0 bg-slate-900/90 backdrop-blur-md"
-          onClick={onClose}
-        />
-        <motion.div 
-          initial={{ scale: 0.95, opacity: 0, y: 30 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.95, opacity: 0, y: 30 }}
-          className="bg-white w-full max-w-3xl rounded-[3.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] overflow-hidden relative z-10 border border-white/20"
-          onClick={e => e.stopPropagation()}
-        >
-          {/* Decorative Background Element */}
-          <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
-          
-          <button 
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-slate-900/90 backdrop-blur-md"
             onClick={onClose}
-            className="absolute top-10 right-10 p-3 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 transition-all z-20"
-            aria-label="Close modal"
+          />
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0, y: 30 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 30 }}
+            className="bg-white w-full max-w-3xl rounded-[3.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.3)] overflow-hidden relative z-10 border border-white/20"
+            onClick={e => e.stopPropagation()}
           >
-            <X className="w-6 h-6" />
-          </button>
+            {/* Decorative Background Element */}
+            <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
+            
+            <button 
+              onClick={onClose}
+              className="absolute top-10 right-10 p-3 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900 transition-all z-20"
+              aria-label="Close modal"
+            >
+              <X className="w-6 h-6" />
+            </button>
 
-          <div className="p-12 lg:p-16 max-h-[90vh] overflow-y-auto no-scrollbar">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-8 mb-12">
-              <div className="relative shrink-0">
-                <div className="flex flex-col items-center justify-center w-28 h-28 rounded-[2.5rem] bg-slate-900 text-white shadow-xl relative z-10">
-                   <span className={`text-4xl font-black ${score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>{score}</span>
-                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Score</span>
-                </div>
-                <div className="absolute -inset-2 bg-indigo-500/20 rounded-[3rem] blur-xl -z-10"></div>
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex items-center space-x-3">
-                  <div className="px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100">
-                    <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">{category} Audit</span>
+            <div className="p-12 lg:p-16 max-h-[90vh] overflow-y-auto no-scrollbar">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-8 mb-12">
+                <div className="relative shrink-0">
+                  <div className="flex flex-col items-center justify-center w-28 h-28 rounded-[2.5rem] bg-slate-900 text-white shadow-xl relative z-10">
+                     <span className={`text-4xl font-black ${score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>{score}</span>
+                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mt-1">Score</span>
                   </div>
-                  {score >= 80 && (
-                    <div className="px-3 py-1 bg-emerald-50 rounded-full border border-emerald-100">
-                      <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em]">Staff Level</span>
+                  <div className="absolute -inset-2 bg-indigo-500/20 rounded-[3rem] blur-xl -z-10"></div>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-3">
+                    <div className="px-3 py-1 bg-indigo-50 rounded-full border border-indigo-100">
+                      <span className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em]">{category} Audit</span>
                     </div>
-                  )}
-                </div>
-                <h2 className="text-4xl font-black text-slate-900 tracking-tight leading-tight">Mastery Analysis</h2>
-              </div>
-            </div>
-
-            <div className="space-y-10">
-              <section className="space-y-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-1.5 h-6 bg-slate-900 rounded-full"></div>
-                  <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Your Performance</h4>
-                </div>
-                <div className="bg-slate-50 p-10 rounded-[2.5rem] border border-slate-100 relative group">
-                  <p className="text-lg text-slate-700 font-bold leading-relaxed italic">
-                    "{reasoning}"
-                  </p>
-                </div>
-              </section>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <section className="bg-indigo-600 text-white p-10 rounded-[3rem] shadow-xl relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                  
-                  <div className="flex items-center space-x-3 mb-6 relative z-10">
-                    <Award className="w-6 h-6 text-indigo-200" />
-                    <h4 className="text-[11px] font-black text-indigo-200 uppercase tracking-[0.3em]">The Staff Standard</h4>
+                    {score >= 80 && (
+                      <div className="px-3 py-1 bg-emerald-50 rounded-full border border-emerald-100">
+                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em]">Staff Level</span>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-[15px] text-white font-medium leading-relaxed relative z-10">
-                    {standard?.standard || "Staff PMs demonstrate exceptional depth in this area, balancing immediate execution with long-term strategic impact."}
-                  </p>
+                  <h2 className="text-4xl font-black text-slate-900 tracking-tight leading-tight">Mastery Analysis</h2>
+                </div>
+              </div>
+
+              <div className="space-y-10">
+                <section className="space-y-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-1.5 h-6 bg-slate-900 rounded-full"></div>
+                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Your Performance</h4>
+                  </div>
+                  <div className="bg-slate-50 p-10 rounded-[2.5rem] border border-slate-100 relative group">
+                    <p className="text-lg text-slate-700 font-bold leading-relaxed italic">
+                      "{reasoning}"
+                    </p>
+                  </div>
                 </section>
 
-                <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <Info className="w-6 h-6 text-indigo-500" />
-                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">High Score Examples</h4>
-                  </div>
-                  <ul className="space-y-4 flex-1">
-                    {(standard?.examples || ['Clear prioritization logic', 'Identification of key trade-offs']).map((ex, idx) => (
-                      <li key={idx} className="flex items-start space-x-4 group/item">
-                        <div className="w-2 h-2 rounded-full bg-indigo-500 mt-2 shrink-0 group-hover/item:scale-125 transition-transform"></div>
-                        <span className="text-[13px] text-slate-600 font-bold leading-tight group-hover/item:text-slate-900 transition-colors">{ex}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <section className="bg-indigo-600 text-white p-10 rounded-[3rem] shadow-xl relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+                    
+                    <div className="flex items-center space-x-3 mb-6 relative z-10">
+                      <Award className="w-6 h-6 text-indigo-200" />
+                      <h4 className="text-[11px] font-black text-indigo-200 uppercase tracking-[0.3em]">The Staff Standard</h4>
+                    </div>
+                    <p className="text-[15px] text-white font-medium leading-relaxed relative z-10">
+                      {standard?.standard || "Staff PMs demonstrate exceptional depth in this area, balancing immediate execution with long-term strategic impact."}
+                    </p>
+                  </section>
+
+                  <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
+                    <div className="flex items-center space-x-3 mb-6">
+                      <Info className="w-6 h-6 text-indigo-500" />
+                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">High Score Examples</h4>
+                    </div>
+                    <ul className="space-y-4 flex-1">
+                      {(standard?.examples || ['Clear prioritization logic', 'Identification of key trade-offs']).map((ex, idx) => (
+                        <li key={idx} className="flex items-start space-x-4 group/item">
+                          <div className="w-2 h-2 rounded-full bg-indigo-500 mt-2 shrink-0 group-hover/item:scale-125 transition-transform"></div>
+                          <span className="text-[13px] text-slate-600 font-bold leading-tight group-hover/item:text-slate-900 transition-colors">{ex}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                </div>
               </div>
             </div>
-          </div>
-        </motion.div>
-      </div>
+          </motion.div>
+        </div>
+      )}
     </AnimatePresence>
   );
 };
@@ -790,6 +804,13 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
   const [showBenchmarkScript, setShowBenchmarkScript] = useState(false);
   const [expandedRubric, setExpandedRubric] = useState<number | null>(null);
   const [selectedRubricIndex, setSelectedRubricIndex] = useState<number | null>(null);
+  const lastValidRubricIndex = React.useRef<number | null>(null);
+
+  if (selectedRubricIndex !== null) {
+    lastValidRubricIndex.current = selectedRubricIndex;
+  }
+
+  const activeRubricIndex = selectedRubricIndex !== null ? selectedRubricIndex : lastValidRubricIndex.current;
 
   const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
 
@@ -870,7 +891,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                 <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
                 <span className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] block mb-3">Core Strategic Gap</span>
                 <p className="text-[13px] text-slate-200 font-bold leading-relaxed relative z-10">
-                  Your logic bypasses critical ecosystem anchoring, jumping directly to execution. To reach Staff level, you must first define the defensive moat and revenue goals before diving into platform constraints. This ensures your solution is not just functional, but strategically defensible.
+                  {result.weaknesses?.[0] || result.defensivePivotAnalysis || "Your logic bypasses critical ecosystem anchoring, jumping directly to execution. To reach Staff level, you must first define the defensive moat and revenue goals before diving into platform constraints."}
                 </p>
               </div>
 
@@ -878,17 +899,22 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                 <div className="relative pl-8 space-y-6">
                   <div className="absolute left-2 top-2 bottom-2 w-px bg-slate-800"></div>
                   
-                  {Array.isArray(result.userLogicPath) ? result.userLogicPath.map((step, i) => {
+                  {Array.isArray(result.userLogicPath) ? result.userLogicPath.map((stepObj, i) => {
                     const isExpanded = expandedStepIndex === i;
+                    const isAligned = stepObj.isAligned;
                     // Try to find a matching golden step for the "Staff Pivot"
                     const matchingGoldenStep = result.goldenPath.find(gs => 
-                      gs.title.toLowerCase().split(' ').some(kw => kw.length > 4 && step.toLowerCase().includes(kw))
+                      gs.title.toLowerCase().split(' ').some(kw => kw.length > 4 && stepObj.step.toLowerCase().includes(kw))
                     ) || result.goldenPath[Math.min(i, result.goldenPath.length - 1)];
 
                     return (
                       <div key={i} className="relative group/step">
                         <div className={`absolute -left-[29px] top-1.5 w-3 h-3 rounded-full border-2 transition-all z-10 ${
-                          isExpanded ? 'bg-indigo-500 border-indigo-500/30 scale-125 shadow-[0_0_10px_rgba(99,102,241,0.5)]' : 'bg-slate-800 border-slate-900 group-hover/step:bg-rose-500 group-hover/step:border-rose-500/30'
+                          isExpanded 
+                            ? 'bg-indigo-500 border-indigo-500/30 scale-125 shadow-[0_0_10px_rgba(99,102,241,0.5)]' 
+                            : isAligned 
+                              ? 'bg-emerald-500 border-emerald-900' 
+                              : 'bg-slate-800 border-slate-900 group-hover/step:bg-rose-500 group-hover/step:border-rose-500/30'
                         }`}></div>
                         
                         <div className="space-y-3">
@@ -897,21 +923,49 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                             className="w-full text-left space-y-2 group/btn"
                           >
                             <p className={`text-[12px] font-bold leading-tight transition-colors ${
-                              isExpanded ? 'text-indigo-300' : 'text-slate-500 line-through decoration-rose-500/40 group-hover/btn:text-slate-400'
+                              isExpanded 
+                                ? 'text-indigo-300' 
+                                : isAligned 
+                                  ? 'text-slate-300' 
+                                  : 'text-slate-500 line-through decoration-rose-500/40 group-hover/btn:text-slate-400'
                             }`}>
-                              {step}
+                              {stepObj.step}
                             </p>
-                            <div className={`flex items-center justify-between bg-indigo-500/5 p-2 px-3 rounded-xl border transition-all ${
-                              isExpanded ? 'bg-indigo-500/20 border-indigo-500/30' : 'border-indigo-500/10 group-hover/btn:bg-indigo-500/10'
-                            }`}>
-                              <div className="flex items-center space-x-3">
-                                <ArrowRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90 text-indigo-400' : 'text-indigo-400'}`} />
-                                <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">
-                                  {isExpanded ? 'Staff Correction' : 'Staff Pivot Required'}
-                                </span>
+                            {!isAligned && (
+                              <div className={`flex items-center justify-between bg-indigo-500/5 p-2 px-3 rounded-xl border transition-all ${
+                                isExpanded ? 'bg-indigo-500/20 border-indigo-500/30' : 'border-indigo-500/10 group-hover/btn:bg-indigo-500/10'
+                              }`}>
+                                <div className="flex items-center space-x-3">
+                                  <ArrowRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90 text-indigo-400' : 'text-indigo-400'}`} />
+                                  <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">
+                                    {isExpanded ? 'Staff Correction' : 'Staff Pivot Required'}
+                                  </span>
+                                </div>
+                                {isExpanded ? <ChevronUp className="w-3 h-3 text-indigo-400" /> : <ChevronDown className="w-3 h-3 text-indigo-400" />}
                               </div>
-                              {isExpanded ? <ChevronUp className="w-3 h-3 text-indigo-400" /> : <ChevronDown className="w-3 h-3 text-indigo-400" />}
-                            </div>
+                            )}
+                            {isAligned && isExpanded && (
+                              <div className="flex items-center justify-between bg-emerald-500/5 p-2 px-3 rounded-xl border border-emerald-500/20">
+                                <div className="flex items-center space-x-3">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                    Aligned with Staff Path
+                                  </span>
+                                </div>
+                                <ChevronUp className="w-3 h-3 text-emerald-400" />
+                              </div>
+                            )}
+                            {isAligned && !isExpanded && (
+                              <div className="flex items-center justify-between bg-emerald-500/5 p-2 px-3 rounded-xl border border-emerald-500/10 opacity-0 group-hover/btn:opacity-100 transition-opacity">
+                                <div className="flex items-center space-x-3">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">
+                                    Aligned
+                                  </span>
+                                </div>
+                                <ChevronDown className="w-3 h-3 text-emerald-500" />
+                              </div>
+                            )}
                           </button>
 
                           <AnimatePresence>
@@ -924,11 +978,13 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                               >
                                 <div className="bg-white/5 p-4 rounded-2xl border border-white/10 space-y-3 mt-2">
                                   <div className="flex items-center space-x-2">
-                                    <div className="w-1 h-3 bg-emerald-500 rounded-full"></div>
-                                    <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Staff Standard</span>
+                                    <div className={`w-1 h-3 rounded-full ${isAligned ? 'bg-emerald-500' : 'bg-indigo-500'}`}></div>
+                                    <span className={`text-[9px] font-black uppercase tracking-widest ${isAligned ? 'text-emerald-400' : 'text-indigo-400'}`}>
+                                      {isAligned ? 'Staff Validation' : 'Staff Pivot'}
+                                    </span>
                                   </div>
                                   <p className="text-[13px] text-white font-bold leading-relaxed">
-                                    {matchingGoldenStep.title}
+                                    {isAligned ? matchingGoldenStep.title : (stepObj.staffPivot || matchingGoldenStep.title)}
                                   </p>
                                   <p className="text-[12px] text-slate-400 font-medium leading-relaxed italic">
                                     {matchingGoldenStep.why}
@@ -1057,16 +1113,14 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
       </div>
 
       {/* RUBRIC DETAIL MODAL */}
-      {selectedRubricIndex !== null && (
-        <RubricDetailModal 
-          isOpen={selectedRubricIndex !== null}
-          onClose={() => setSelectedRubricIndex(null)}
-          category={result.rubricScores[selectedRubricIndex].category}
-          score={result.rubricScores[selectedRubricIndex].score}
-          reasoning={result.rubricScores[selectedRubricIndex].reasoning}
-          standard={RUBRIC_STANDARDS[result.rubricScores[selectedRubricIndex].category] || RUBRIC_STANDARDS[Object.keys(RUBRIC_STANDARDS).find(k => result.rubricScores[selectedRubricIndex].category.includes(k)) || '']}
-        />
-      )}
+      <RubricDetailModal 
+        isOpen={selectedRubricIndex !== null}
+        onClose={() => setSelectedRubricIndex(null)}
+        category={activeRubricIndex !== null ? result.rubricScores[activeRubricIndex].category : ''}
+        score={activeRubricIndex !== null ? result.rubricScores[activeRubricIndex].score : 0}
+        reasoning={activeRubricIndex !== null ? result.rubricScores[activeRubricIndex].reasoning : ''}
+        standard={activeRubricIndex !== null ? (RUBRIC_STANDARDS[result.rubricScores[activeRubricIndex].category] || RUBRIC_STANDARDS[Object.keys(RUBRIC_STANDARDS).find(k => result.rubricScores[activeRubricIndex].category.includes(k)) || '']) : undefined}
+      />
 
       {/* REDLINE TRANSCRIPT */}
       <RedlineView result={result} />

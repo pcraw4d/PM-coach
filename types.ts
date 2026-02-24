@@ -81,6 +81,12 @@ export interface GoldenPathStep {
   strategicTradeOffs: string; // Added: Explains why alternatives were rejected
 }
 
+export interface UserLogicStep {
+  step: string;
+  isAligned: boolean;
+  staffPivot?: string;
+}
+
 export interface InterviewResult {
   overallScore: number;
   visionScore: number; 
@@ -89,7 +95,7 @@ export interface InterviewResult {
   followUpTranscription: string;
   followUpQuestions: string[];
   
-  userLogicPath: string[]; 
+  userLogicPath: UserLogicStep[]; 
   defensivePivotScore: number; 
   defensivePivotAnalysis: string; 
   

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ArrowRight } from 'lucide-react';
 import { Header, Container } from './components/Layout.tsx';
 import { Recorder } from './components/Recorder.tsx';
 import { FeedbackView } from './components/FeedbackView.tsx';
@@ -336,16 +337,22 @@ const App: React.FC = () => {
                  <div className="flex flex-col gap-8">
                     <button onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]">
                        <div className="relative z-10 flex flex-col h-full text-white">
-                          <h3 className="text-3xl font-black mb-2">Product Sense</h3>
+                          <h3 className="text-4xl font-black mb-2 tracking-tighter">ProductSense</h3>
                           <p className="text-indigo-100 font-bold text-sm leading-relaxed mb-8">Master visionary empathy and user-centric design.</p>
-                          <div className="mt-auto bg-white text-indigo-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest w-fit">Start Session</div>
+                          <div className="mt-auto bg-white text-indigo-700 font-black px-8 py-4 rounded-full text-[11px] uppercase tracking-[0.2em] w-fit flex items-center space-x-3 shadow-xl group-hover:bg-indigo-50 transition-colors">
+                             <span>START SESSION</span>
+                             <ArrowRight className="w-4 h-4" />
+                          </div>
                        </div>
                     </button>
                     <button onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]">
                        <div className="relative z-10 flex flex-col h-full text-white">
-                          <h3 className="text-3xl font-black mb-2">Analytical Thinking</h3>
+                          <h3 className="text-4xl font-black mb-2 tracking-tighter">AnalyticalThinking</h3>
                           <p className="text-emerald-50 font-bold text-sm leading-relaxed mb-8">Execute root cause analysis and metric trade-offs.</p>
-                          <div className="mt-auto bg-white text-emerald-700 font-black px-6 py-3 rounded-2xl text-[10px] uppercase tracking-widest w-fit">Start Session</div>
+                          <div className="mt-auto bg-white text-emerald-700 font-black px-8 py-4 rounded-full text-[11px] uppercase tracking-[0.2em] w-fit flex items-center space-x-3 shadow-xl group-hover:bg-emerald-50 transition-colors">
+                             <span>START SESSION</span>
+                             <ArrowRight className="w-4 h-4" />
+                          </div>
                        </div>
                     </button>
                  </div>
