@@ -62,6 +62,7 @@ export interface CommunicationAnalysis {
   tone: string;
   confidenceScore: number;
   clarityScore: number;
+  structureScore: number;
   overallAssessment: 'Strong' | 'Average' | 'Needs Work';
   summary: string;
 }

@@ -661,30 +661,108 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
   );
 };
 
-const RUBRIC_STANDARDS: Record<string, { standard: string; examples: string[] }> = {
-  'Vision': {
-    standard: 'Staff PMs connect features to a 3-5 year north star. They don\'t just build for today; they build for the ecosystem.',
-    examples: ['Connecting a feature to long-term platform defensibility', 'Identifying non-obvious second-order effects']
+type ScoreLevel = {
+  range: string;
+  description: string;
+  example: string;
+};
+
+const RUBRIC_STANDARDS: Record<string, { standard: string; levels: ScoreLevel[] }> = {
+  'Goal Definition': {
+    standard: 'Business objective prioritized before personas.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Jumps straight to features or personas without defining a business goal.', example: 'I would build a dashboard for managers to see team velocity.' },
+      { range: '60-79 (Senior)', description: 'Defines a valid business goal but fails to tie it to the company\'s core mission.', example: 'The goal is to increase engagement by 10% so we can drive more ad revenue.' },
+      { range: '80-100 (Staff)', description: 'Prioritizes a high-leverage business objective before personas and explicitly ties it to the company\'s strategic moat.', example: 'Before discussing features, our primary business objective must be B2B seat expansion. Given our enterprise moat, we should target the procurement persona first to reduce churn.' }
+    ]
   },
-  'Execution': {
-    standard: 'Flawless prioritization based on ROI and strategic leverage. High score requires identifying the "critical path" and potential bottlenecks.',
-    examples: ['Using a weighted scoring model for feature selection', 'Defining clear MVP boundaries that still deliver value']
+  'User Problem Prioritization': {
+    standard: 'Identifies a critical, unmet user need and prioritizes it based on impact and frequency.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Fails to identify a critical user need or relies on superficial demographics.', example: 'We should target millennials because they use phones a lot.' },
+      { range: '60-79 (Senior)', description: 'Identifies valid pain points but struggles to prioritize them based on impact and frequency.', example: 'Users find the checkout process too long, so we should shorten it.' },
+      { range: '80-100 (Staff)', description: 'Segments users by behavior/pain point and identifies a "hair-on-fire" problem aligning with the business goal.', example: 'Instead of targeting all small businesses, we should focus specifically on high-volume merchants who experience a 30% drop-off during the payment reconciliation step, as solving this directly impacts our retention goal.' }
+    ]
   },
-  'Analytical Thinking': {
-    standard: 'Data-driven decision making that goes beyond surface-level metrics. Staff PMs identify the "why" behind the numbers.',
-    examples: ['Segmenting users to find non-obvious pain points', 'Predicting metric trade-offs (e.g., Engagement vs. Retention)']
+  'Solution Creativity & Design': {
+    standard: 'Innovative, feasible, and directly addresses the prioritized problem.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Proposes generic, incremental, or unfeasible solutions.', example: 'Let\'s just add a button that does it automatically using AI.' },
+      { range: '60-79 (Senior)', description: 'Proposes solid, logical solutions but lacks innovation or a "magic moment".', example: 'We can build a dashboard that aggregates all their transactions in one place.' },
+      { range: '80-100 (Staff)', description: 'Proposes a 10x better, innovative solution that creates a "magic moment" while remaining technically grounded.', example: 'Rather than building another dashboard they have to check, we can use webhooks to push reconciliation anomalies directly into their existing Slack workflow, creating a zero-friction "magic moment".' }
+    ]
   },
-  'Communication': {
-    standard: 'Crisp, structured, and persuasive. Staff PMs use frameworks not as a crutch, but as a way to drive consensus.',
-    examples: ['Using the "Rule of Three" for key points', 'Summarizing complex trade-offs into simple executive decisions']
+  'Execution & Sequencing (MVP)': {
+    standard: 'Breaks down a grand vision into a testable, high-ROI first release.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Struggles to define an MVP or just proposes building a smaller version of the final product.', example: 'For the MVP, we will just build the app with fewer features.' },
+      { range: '60-79 (Senior)', description: 'Defines a reasonable V1 but doesn\'t explicitly isolate the riskiest assumptions.', example: 'Our MVP will be a basic version of the Slack integration that only supports one type of alert.' },
+      { range: '80-100 (Staff)', description: 'Defines a ruthless MVP that specifically isolates and tests the riskiest assumption with high ROI.', example: 'Our riskiest assumption isn\'t technical feasibility, it\'s whether merchants will actually act on these alerts. Our MVP should be a simple daily email digest generated manually by ops; if open rates exceed 40%, we invest in the automated Slack integration.' }
+    ]
   },
-  'Defense': {
-    standard: 'Resilience under pressure. Staff PMs can defend their logic against aggressive counter-arguments without becoming defensive.',
-    examples: ['Acknowledging a valid counter-point while explaining the strategic choice', 'Pivoting logic gracefully when new data is introduced']
+  'Strategic Moat': {
+    standard: 'Unique company leverage.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Ignores the company\'s unique advantages or proposes generic solutions.', example: 'We should add a generic AI chatbot to help users find things faster.' },
+      { range: '60-79 (Senior)', description: 'Acknowledges the company\'s strengths but doesn\'t fully leverage them in the solution.', example: 'Since we have a lot of user data, we can personalize the feed.' },
+      { range: '80-100 (Staff)', description: 'Deeply integrates the company\'s unique leverage and ecosystem into the core of the strategy.', example: 'Our proprietary distribution network is our moat. We shouldn\'t just build a new app; we should embed this functionality directly into the existing partner portal where we already have 90% market penetration.' }
+    ]
   },
-  'Product Sense': {
-    standard: 'Deep empathy for user pain points combined with a keen eye for product-market fit. Staff PMs build what users need, not just what they ask for.',
-    examples: ['Identifying "unmet needs" through behavioral observation', 'Designing for the "magic moment" in the user journey']
+  'Second-Order Effects': {
+    standard: 'Long-term ecosystem impact.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Fails to consider long-term consequences or ecosystem impacts.', example: 'Let\'s just make the button bigger so more people click it.' },
+      { range: '60-79 (Senior)', description: 'Identifies basic risks but lacks a comprehensive mitigation strategy.', example: 'If we increase notifications, users might get annoyed and turn them off.' },
+      { range: '80-100 (Staff)', description: 'Proactively addresses long-term ecosystem impact, cannibalization, and complex trade-offs.', example: 'Introducing a freemium tier will likely cannibalize our low-end paid plans by 15% in Q1. However, by gating the enterprise SSO feature, we create a forced upgrade path that will offset this loss by Q3 through higher ACV.' }
+    ]
+  },
+  'Metric Funnel': {
+    standard: 'North Star + Guardrails.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Selects vanity metrics or fails to define a clear North Star.', example: 'We should track total registered users and page views.' },
+      { range: '60-79 (Senior)', description: 'Defines a solid North Star but lacks comprehensive guardrail metrics.', example: 'Our North Star is Weekly Active Users (WAU). We will measure success by how much WAU increases.' },
+      { range: '80-100 (Staff)', description: 'Establishes a robust metric funnel with a precise North Star and critical guardrails.', example: 'Our North Star is Weekly Paid Active Users. Our primary guardrail is Customer Support Tickets per 1k Users to ensure we aren\'t driving engagement through confusing dark patterns.' }
+    ]
+  },
+  'Unintended Consequences': {
+    standard: 'How success in X hurts Y.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Ignores how optimizing for the primary metric might harm other areas.', example: 'If we send more emails, open rates will go up.' },
+      { range: '60-79 (Senior)', description: 'Acknowledges potential harm but dismisses it without deep analysis.', example: 'We might see some unsubscribes, but the increased conversion rate is worth it.' },
+      { range: '80-100 (Staff)', description: 'Deeply analyzes how success in X hurts Y and proposes sophisticated mitigations.', example: 'Optimizing for Time Spent on the feed will inevitably cannibalize Messages Sent. We must establish a threshold: if messaging drops by more than 5%, we roll back, as messaging is our core retention driver.' }
+    ]
+  },
+  'Incremental Lift': {
+    standard: 'Absolute growth vs cannibalization.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Confuses absolute growth with incremental lift or ignores cannibalization.', example: 'The new feature got 10,000 clicks, so it\'s a huge success!' },
+      { range: '60-79 (Senior)', description: 'Understands incremental lift but struggles to design a mechanism to measure it accurately.', example: 'We need to run an A/B test to see if the new feature actually drives more total revenue.' },
+      { range: '80-100 (Staff)', description: 'Perfectly distinguishes absolute growth from cannibalization and designs precise measurement mechanisms.', example: 'To measure true incremental lift, we will use a holdout group. We aren\'t just looking at the $50k generated by the new widget; we need to verify that the control group didn\'t generate $45k through the old flow anyway, meaning our true lift is only $5k.' }
+    ]
+  },
+  'Root Cause Analysis (Debugging)': {
+    standard: 'Systematically isolates variables when a metric drops unexpectedly.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Jumps to conclusions without a structured approach to isolate variables.', example: 'Traffic dropped because our new feature is confusing.' },
+      { range: '60-79 (Senior)', description: 'Uses a basic structure to investigate but misses edge cases or external factors.', example: 'I would check if there are any bugs, and then look at the funnel drop-off.' },
+      { range: '80-100 (Staff)', description: 'Uses a MECE framework to systematically isolate internal (bugs, tracking) vs. external (seasonality, competitors) factors.', example: 'Before looking at user behavior, I would establish a MECE tree: First, is this a data artifact (tracking bug)? Second, is it internal (a bad release)? Third, is it external (seasonality, competitor launch)?' }
+    ]
+  },
+  'Hypothesis Generation': {
+    standard: 'Formulates data-backed hypotheses and proposes specific, low-cost ways to validate them.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Proposes random guesses without data backing or validation plans.', example: 'Maybe users just don\'t like the new color.' },
+      { range: '60-79 (Senior)', description: 'Formulates reasonable hypotheses but relies on expensive A/B tests to validate everything.', example: 'I think the new onboarding is too long. Let\'s run an A/B test with a shorter version.' },
+      { range: '80-100 (Staff)', description: 'Formulates data-backed hypotheses and proposes specific, low-cost ways to validate them.', example: 'My hypothesis is that the drop in conversion is isolated to Android users on older OS versions. Before building a fix, we can validate this cheaply by querying the conversion rate grouped by OS version and device age.' }
+    ]
+  },
+  'Trade-off Decision Making': {
+    standard: 'Handles conflicting data with a clear framework and makes a definitive recommendation.',
+    levels: [
+      { range: '< 60 (Needs Work)', description: 'Freezes when metrics conflict or makes a gut-based decision without a framework.', example: 'Since engagement is up, we should just launch it.' },
+      { range: '60-79 (Senior)', description: 'Acknowledges the conflict but struggles to make a definitive recommendation.', example: 'Engagement is up but revenue is down, so we should probably discuss this with leadership to decide.' },
+      { range: '80-100 (Staff)', description: 'Establishes a clear framework for breaking ties and makes a definitive "go/no-go" recommendation.', example: 'While engagement increased by 5%, the 2% drop in revenue breaks our primary guardrail. Given our current company OKR is profitability over growth, my recommendation is a definitive no-go until we patch the monetization leak.' }
+    ]
   }
 };
 
@@ -694,7 +772,7 @@ const RubricDetailModal: React.FC<{
   category: string; 
   score: number; 
   reasoning: string;
-  standard?: { standard: string; examples: string[] };
+  standard?: { standard: string; levels: ScoreLevel[] };
 }> = ({ isOpen, onClose, category, score, reasoning, standard }) => {
   return (
     <AnimatePresence>
@@ -763,33 +841,43 @@ const RubricDetailModal: React.FC<{
                   </div>
                 </section>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <section className="bg-indigo-600 text-white p-10 rounded-[3rem] shadow-xl relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
-                    
-                    <div className="flex items-center space-x-3 mb-6 relative z-10">
-                      <Award className="w-6 h-6 text-indigo-200" />
-                      <h4 className="text-[11px] font-black text-indigo-200 uppercase tracking-[0.3em]">The Staff Standard</h4>
-                    </div>
-                    <p className="text-[15px] text-white font-medium leading-relaxed relative z-10">
-                      {standard?.standard || "Staff PMs demonstrate exceptional depth in this area, balancing immediate execution with long-term strategic impact."}
-                    </p>
-                  </section>
+                <div className="space-y-6">
+                  <div className="flex items-center space-x-3 mb-6">
+                    <Info className="w-6 h-6 text-indigo-500" />
+                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">Score Breakdown & Examples</h4>
+                  </div>
+                  
+                  <div className="flex flex-col gap-4">
+                    {standard?.levels?.map((level, idx) => {
+                      const isNeedsWork = level.range.includes('< 60');
+                      const isSenior = level.range.includes('60-79');
+                      const isStaff = level.range.includes('80-100');
+                      
+                      const bgColor = isStaff ? 'bg-emerald-50' : isSenior ? 'bg-amber-50' : 'bg-rose-50';
+                      const borderColor = isStaff ? 'border-emerald-100' : isSenior ? 'border-amber-100' : 'border-rose-100';
+                      const textColor = isStaff ? 'text-emerald-700' : isSenior ? 'text-amber-700' : 'text-rose-700';
+                      const badgeBg = isStaff ? 'bg-emerald-100' : isSenior ? 'bg-amber-100' : 'bg-rose-100';
 
-                  <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col">
-                    <div className="flex items-center space-x-3 mb-6">
-                      <Info className="w-6 h-6 text-indigo-500" />
-                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.3em]">High Score Examples</h4>
-                    </div>
-                    <ul className="space-y-4 flex-1">
-                      {(standard?.examples || ['Clear prioritization logic', 'Identification of key trade-offs']).map((ex, idx) => (
-                        <li key={idx} className="flex items-start space-x-4 group/item">
-                          <div className="w-2 h-2 rounded-full bg-indigo-500 mt-2 shrink-0 group-hover/item:scale-125 transition-transform"></div>
-                          <span className="text-[13px] text-slate-600 font-bold leading-tight group-hover/item:text-slate-900 transition-colors">{ex}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
+                      return (
+                        <div key={idx} className={`p-6 rounded-[2rem] border ${borderColor} ${bgColor} flex flex-col gap-3`}>
+                          <div className="flex items-center gap-3">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${badgeBg} ${textColor}`}>
+                              {level.range}
+                            </span>
+                          </div>
+                          <p className="text-[13px] text-slate-700 font-bold leading-relaxed">{level.description}</p>
+                          <div className="mt-2 p-4 bg-white/60 rounded-2xl border border-white/40">
+                            <p className="text-[12px] text-slate-600 italic font-medium">"{level.example}"</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!standard?.levels && (
+                      <div className="p-6 rounded-[2rem] border border-slate-100 bg-slate-50 text-slate-500 text-sm text-center">
+                        No detailed breakdown available for this category.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -817,7 +905,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
   const commData = useMemo(() => [
     { category: 'Confidence', value: result.communicationAnalysis?.confidenceScore || 0, full: 100 },
     { category: 'Clarity', value: result.communicationAnalysis?.clarityScore || 0, full: 100 },
-    { category: 'Structure', value: result.overallScore || 0, full: 100 },
+    { category: 'Structure', value: result.communicationAnalysis?.structureScore || 0, full: 100 },
     { category: 'Vision', value: result.visionScore || 0, full: 100 },
     { category: 'Defense', value: result.defenseScore || 0, full: 100 },
   ], [result]);
@@ -1072,7 +1160,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
       </div>
 
       {/* RUBRIC BREAKDOWN */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="flex flex-col gap-6">
          {result.rubricScores?.map((r, i) => {
            const standard = RUBRIC_STANDARDS[r.category] || RUBRIC_STANDARDS[Object.keys(RUBRIC_STANDARDS).find(k => r.category.includes(k)) || ''];
 
@@ -1144,26 +1232,31 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
         {showBenchmarkScript ? (
           <BenchmarkScript text={result.benchmarkResponse} />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="flex flex-col gap-6">
             {result.goldenPath?.map((step, i) => (
-              <div key={i} className="flex flex-col space-y-5 p-8 bg-white/5 rounded-[2.5rem] border border-white/5 hover:border-indigo-500/40 transition-all group relative overflow-hidden">
-                  <div className="flex justify-between items-start relative z-10">
+              <div key={i} className="flex flex-col lg:flex-row gap-6 lg:gap-8 p-8 bg-white/5 rounded-[2.5rem] border border-white/5 hover:border-indigo-500/40 transition-all group relative overflow-hidden">
+                  
+                  {/* Column 1: Number */}
+                  <div className="lg:w-20 shrink-0 relative z-10 flex flex-row lg:flex-col justify-between lg:justify-start items-center lg:items-start">
                     <span className="text-5xl font-black text-indigo-500/10 group-hover:text-indigo-500/30 transition-colors">0{i+1}</span>
-                    <div className="w-10 h-1 bg-indigo-500/20 rounded-full mt-6"></div>
+                    <div className="w-10 h-1 bg-indigo-500/20 rounded-full mt-4 hidden lg:block"></div>
                   </div>
                   
-                  <div className="space-y-3 relative z-10">
+                  {/* Column 2: Title & Detail */}
+                  <div className="flex-[1.5] space-y-3 relative z-10 lg:pr-8 lg:border-r border-white/5">
                     <h5 className="font-black text-[13px] uppercase text-indigo-300 leading-tight tracking-wide">{step.title}</h5>
                     <p className="text-xs text-slate-300 font-bold leading-relaxed">{step.content}</p>
                   </div>
 
-                  <div className="space-y-4 pt-5 border-t border-white/5 mt-auto relative z-10">
-                    <div className="space-y-1.5">
-                      <span className="font-black text-indigo-500 text-[9px] block uppercase tracking-widest">Core Logic</span>
-                      <p className="text-[11px] italic text-slate-400 font-medium leading-relaxed">{step.why}</p>
-                    </div>
+                  {/* Column 3: Core Logic */}
+                  <div className="flex-1 space-y-2 relative z-10 lg:pr-8 lg:border-r border-white/5 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/5">
+                    <span className="font-black text-indigo-500 text-[9px] block uppercase tracking-widest">Core Logic</span>
+                    <p className="text-[11px] italic text-slate-400 font-medium leading-relaxed">{step.why}</p>
+                  </div>
 
-                    <div className="bg-rose-500/10 p-5 rounded-3xl border border-rose-500/20 group-hover:bg-rose-500/20 transition-all">
+                  {/* Column 4: Rejected Path */}
+                  <div className="flex-1 relative z-10 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/5">
+                    <div className="bg-rose-500/10 p-5 rounded-3xl border border-rose-500/20 group-hover:bg-rose-500/20 transition-all h-full">
                       <div className="flex items-center space-x-2 mb-2">
                         <svg className="w-3 h-3 text-rose-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
                         <span className="font-black text-rose-400 text-[9px] block uppercase tracking-widest">Rejected Path</span>

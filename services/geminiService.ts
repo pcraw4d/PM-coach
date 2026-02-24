@@ -157,14 +157,56 @@ export class GeminiService {
     
     const specializedRubric = type === InterviewType.PRODUCT_SENSE ? `
       AUDIT FOCUS: PRODUCT SENSE
-      1. GOAL DEFINITION: Business objective prioritized before personas.
-      2. STRATEGIC MOAT: Unique company leverage.
-      3. SECOND-ORDER EFFECTS: Long-term ecosystem impact.
+      1. Goal Definition
+         - < 60 (Needs Work): Jumps straight to features or personas without defining a business goal.
+         - 60-79 (Senior): Defines a valid business goal but fails to tie it to the company's core mission.
+         - 80-100 (Staff): Prioritizes a high-leverage business objective before personas and explicitly ties it to the company's strategic moat.
+      2. User Problem Prioritization
+         - < 60 (Needs Work): Fails to identify a critical user need or relies on superficial demographics.
+         - 60-79 (Senior): Identifies valid pain points but struggles to prioritize them based on impact and frequency.
+         - 80-100 (Staff): Segments users by behavior/pain point and identifies a "hair-on-fire" problem aligning with the business goal.
+      3. Solution Creativity & Design
+         - < 60 (Needs Work): Proposes generic, incremental, or unfeasible solutions.
+         - 60-79 (Senior): Proposes solid, logical solutions but lacks innovation or a "magic moment".
+         - 80-100 (Staff): Proposes a 10x better, innovative solution that creates a "magic moment" while remaining technically grounded.
+      4. Execution & Sequencing (MVP)
+         - < 60 (Needs Work): Struggles to define an MVP or just proposes building a smaller version of the final product.
+         - 60-79 (Senior): Defines a reasonable V1 but doesn't explicitly isolate the riskiest assumptions.
+         - 80-100 (Staff): Defines a ruthless MVP that specifically isolates and tests the riskiest assumption with high ROI.
+      5. Strategic Moat
+         - < 60 (Needs Work): Ignores the company's unique advantages or proposes generic solutions.
+         - 60-79 (Senior): Acknowledges the company's strengths but doesn't fully leverage them in the solution.
+         - 80-100 (Staff): Deeply integrates the company's unique leverage and ecosystem into the core of the strategy.
+      6. Second-Order Effects
+         - < 60 (Needs Work): Fails to consider long-term consequences or ecosystem impacts.
+         - 60-79 (Senior): Identifies basic risks but lacks a comprehensive mitigation strategy.
+         - 80-100 (Staff): Proactively addresses long-term ecosystem impact, cannibalization, and complex trade-offs.
     ` : `
       AUDIT FOCUS: ANALYTICAL THINKING
-      1. METRIC FUNNEL: North Star + Guardrails.
-      2. UNINTENDED CONSEQUENCES: How success in X hurts Y.
-      3. INCREMENTAL LIFT: Absolute growth vs cannibalization.
+      1. Root Cause Analysis (Debugging)
+         - < 60 (Needs Work): Jumps to conclusions without a structured approach to isolate variables.
+         - 60-79 (Senior): Uses a basic structure to investigate but misses edge cases or external factors.
+         - 80-100 (Staff): Uses a MECE framework to systematically isolate internal (bugs, tracking) vs. external (seasonality, competitors) factors.
+      2. Hypothesis Generation
+         - < 60 (Needs Work): Proposes random guesses without data backing or validation plans.
+         - 60-79 (Senior): Formulates reasonable hypotheses but relies on expensive A/B tests to validate everything.
+         - 80-100 (Staff): Formulates data-backed hypotheses and proposes specific, low-cost ways to validate them (e.g., querying a specific cohort).
+      3. Metric Funnel
+         - < 60 (Needs Work): Selects vanity metrics or fails to define a clear North Star.
+         - 60-79 (Senior): Defines a solid North Star but lacks comprehensive guardrail metrics.
+         - 80-100 (Staff): Establishes a robust metric funnel with a precise North Star and critical guardrails.
+      4. Unintended Consequences
+         - < 60 (Needs Work): Ignores how optimizing for the primary metric might harm other areas.
+         - 60-79 (Senior): Acknowledges potential harm but dismisses it without deep analysis.
+         - 80-100 (Staff): Deeply analyzes how success in X hurts Y and proposes sophisticated mitigations.
+      5. Incremental Lift
+         - < 60 (Needs Work): Confuses absolute growth with incremental lift or ignores cannibalization.
+         - 60-79 (Senior): Understands incremental lift but struggles to design a mechanism to measure it accurately.
+         - 80-100 (Staff): Perfectly distinguishes absolute growth from cannibalization and designs precise measurement mechanisms.
+      6. Trade-off Decision Making
+         - < 60 (Needs Work): Freezes when metrics conflict or makes a gut-based decision without a framework.
+         - 60-79 (Senior): Acknowledges the conflict but struggles to make a definitive recommendation.
+         - 80-100 (Staff): Establishes a clear framework for breaking ties (e.g., LTV vs. CAC, strategic alignment) and makes a definitive "go/no-go" recommendation.
     `;
 
     const prompt = `
@@ -182,8 +224,12 @@ export class GeminiService {
       - userLogicPath: Break down the user's response into a sequence of logical steps. For each step, determine if it aligns with the Staff Golden Path (isAligned). If it does NOT align, provide a specific 'staffPivot' explaining the tactical correction for that specific line.
       - goldenPath: Provide the ideal Staff-level sequence. MUST be at least 5 steps long to ensure a comprehensive strategic map.
 
+      COMMUNICATION ANALYSIS INSTRUCTIONS:
+      - Evaluate Stakeholder Influence (Structure): Does the candidate structure their answer in a way that brings cross-functional partners (Engineering, Design, Leadership) along? 
+      - Staff Standard for Structure: Uses executive summaries, "Rule of Three", and explicitly calls out when they are making an assumption that requires engineering validation.
+
       SCORING INSTRUCTIONS:
-      - ALL scores (overallScore, visionScore, defenseScore, defensivePivotScore, rubricScores, confidenceScore, clarityScore) MUST be on a 0-100 scale.
+      - ALL scores (rubricScores, confidenceScore, clarityScore, structureScore) MUST be on a 0-100 scale.
       - 0-59: Needs Work
       - 60-79: Average/Senior
       - 80-100: Staff/Bar-Raiser
@@ -192,9 +238,6 @@ export class GeminiService {
     const responseSchema = {
       type: Type.OBJECT,
       properties: {
-        overallScore: { type: Type.NUMBER },
-        visionScore: { type: Type.NUMBER },
-        defenseScore: { type: Type.NUMBER },
         userLogicPath: { 
           type: Type.ARRAY,
           items: { 
@@ -207,14 +250,18 @@ export class GeminiService {
             required: ["step", "isAligned"]
           }
         },
-        defensivePivotScore: { type: Type.NUMBER },
         defensivePivotAnalysis: { type: Type.STRING },
         rubricScores: {
           type: Type.ARRAY,
           items: {
             type: Type.OBJECT,
             properties: {
-              category: { type: Type.STRING },
+              category: { 
+                type: Type.STRING,
+                enum: type === InterviewType.PRODUCT_SENSE 
+                  ? ["Goal Definition", "User Problem Prioritization", "Solution Creativity & Design", "Execution & Sequencing (MVP)", "Strategic Moat", "Second-Order Effects"]
+                  : ["Root Cause Analysis (Debugging)", "Hypothesis Generation", "Metric Funnel", "Unintended Consequences", "Incremental Lift", "Trade-off Decision Making"]
+              },
               score: { type: Type.NUMBER },
               reasoning: { type: Type.STRING }
             },
@@ -242,10 +289,11 @@ export class GeminiService {
             tone: { type: Type.STRING },
             confidenceScore: { type: Type.NUMBER },
             clarityScore: { type: Type.NUMBER },
+            structureScore: { type: Type.NUMBER },
             overallAssessment: { type: Type.STRING },
             summary: { type: Type.STRING }
           },
-          required: ["tone", "confidenceScore", "clarityScore", "overallAssessment", "summary"]
+          required: ["tone", "confidenceScore", "clarityScore", "structureScore", "overallAssessment", "summary"]
         },
         annotatedVision: {
           type: Type.ARRAY,
@@ -299,38 +347,47 @@ export class GeminiService {
         benchmarkResponse: { type: Type.STRING }
       },
       required: [
-        "overallScore", "visionScore", "defenseScore", "userLogicPath", 
-        "defensivePivotScore", "defensivePivotAnalysis", "rubricScores", 
+        "userLogicPath", "defensivePivotAnalysis", "rubricScores", 
         "improvementItems", "communicationAnalysis", "annotatedVision", 
         "annotatedDefense", "goldenPath", "recommendedResources", "benchmarkResponse"
       ]
     };
 
     const formatResult = (data: any): InterviewResult => {
-      // Sanity check: Ensure all scores are 0-100
-      const scaleScore = (s: any) => (typeof s === 'number' && s <= 10) ? s * 10 : s;
+      const rubricScores = data.rubricScores || [];
+      const comms = data.communicationAnalysis || { confidenceScore: 0, clarityScore: 0, structureScore: 0 };
       
-      const scaledData = {
-        ...data,
-        overallScore: scaleScore(data.overallScore),
-        visionScore: scaleScore(data.visionScore),
-        defenseScore: scaleScore(data.defenseScore),
-        defensivePivotScore: scaleScore(data.defensivePivotScore),
-        rubricScores: data.rubricScores.map((s: any) => ({ ...s, score: scaleScore(s.score) })),
-        communicationAnalysis: {
-          ...data.communicationAnalysis,
-          confidenceScore: scaleScore(data.communicationAnalysis.confidenceScore),
-          clarityScore: scaleScore(data.communicationAnalysis.clarityScore)
-        }
-      };
+      // Calculate scores mathematically
+      const avgRubric = rubricScores.length > 0 
+        ? rubricScores.reduce((sum: number, r: any) => sum + r.score, 0) / rubricScores.length 
+        : 0;
+      
+      const avgComms = (comms.confidenceScore + comms.clarityScore + (comms.structureScore || 0)) / 3;
+      
+      // Overall score: 80% rubric, 20% communication
+      const overallScore = Math.round((avgRubric * 0.8) + (avgComms * 0.2));
+      
+      // Vision score: average of all but the last rubric category
+      const visionRubrics = rubricScores.slice(0, Math.max(1, rubricScores.length - 1));
+      const visionScore = visionRubrics.length > 0
+        ? Math.round(visionRubrics.reduce((sum: number, r: any) => sum + r.score, 0) / visionRubrics.length)
+        : 0;
+        
+      // Defense score: the last rubric category (which corresponds to the follow-up defense)
+      const defenseScore = rubricScores.length > 0 ? rubricScores[rubricScores.length - 1].score : 0;
+      const defensivePivotScore = defenseScore; // Use the same score for the pivot
 
       return {
-        ...scaledData,
+        ...data,
+        overallScore,
+        visionScore,
+        defenseScore,
+        defensivePivotScore,
         transcription: initialTranscript,
         followUpQuestions,
         followUpTranscription: followUpTranscript,
-        strengths: scaledData.rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
-        weaknesses: scaledData.rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
+        strengths: rubricScores.filter((s: any) => s.score >= 80).map((s: any) => s.category),
+        weaknesses: rubricScores.filter((s: any) => s.score < 60).map((s: any) => s.category)
       };
     };
 
