@@ -59,8 +59,9 @@ export interface ImprovementItem {
 }
 
 export interface CommunicationAnalysis {
-  tone: string;
-  confidenceScore: number;
+  specificityScore: number;
+  executiveFramingScore: number;
+  hedgingLanguageFound: string[];
   clarityScore: number;
   structureScore: number;
   overallAssessment: 'Strong' | 'Average' | 'Needs Work';

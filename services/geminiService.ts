@@ -1,5 +1,145 @@
 import { GoogleGenAI, Type, GenerateContentResponse, ThinkingLevel } from "@google/genai";
 import { InterviewType, InterviewResult, KnowledgeMission, ImprovementItem } from "../types.ts";
+import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS } from '../constants.tsx';
+
+// Update model names here when Google releases new versions
+// Current models: https://ai.google.dev/gemini-api/docs/models
+const MODEL_CONFIG = {
+  TRANSCRIPTION: 'gemini-2.0-flash',
+  FOLLOW_UP: 'gemini-2.0-flash',
+  ANALYSIS_PRIMARY: 'gemini-2.5-pro',
+  ANALYSIS_FALLBACK: 'gemini-2.0-flash',
+  MISSIONS: 'gemini-2.0-flash',
+  DELTA_VERIFY: 'gemini-2.0-flash',
+  EXTRACTION: 'gemini-2.0-flash',
+  EXTRACTION_FALLBACK: 'gemini-2.0-flash-lite'
+} as const;
+
+interface TranscriptExtraction {
+  frameworks: Array<{
+    quote: string;       // verbatim words used
+    framework: string;   // name of the framework e.g. "MECE", 
+                         // "Jobs To Be Done", "Rule of Three"
+    usedCorrectly: boolean;
+  }>;
+  metrics: Array<{
+    quote: string;       // verbatim words used
+    metricType: string;  // e.g. "North Star", "guardrail", 
+                         // "vanity", "proxy"
+    isQuantified: boolean;
+  }>;
+  claims: Array<{
+    quote: string;       // verbatim claim
+    category: string;    // e.g. "user insight", "prioritization 
+                         // rationale", "MVP scope", "trade-off",
+                         // "second-order effect", "recommendation"
+    hasEvidence: boolean; // did the candidate back it with data 
+                          // or reasoning?
+  }>;
+  weaknesses: Array<{
+    quote: string;       // verbatim words
+    issueType: string;   // e.g. "hedging language", "vague claim",
+                         // "unsupported assumption", "skipped step",
+                         // "wrong framework application", 
+                         // "vanity metric"
+    severity: 'minor' | 'moderate' | 'critical';
+  }>;
+  strengths: Array<{
+    quote: string;       // verbatim words
+    strengthType: string; // e.g. "precise quantification", 
+                          // "executive framing", "MECE structure",
+                          // "company moat insight", 
+                          // "second-order awareness"
+  }>;
+  hedgingInstances: string[]; // every verbatim hedging phrase found
+  structureSignals: Array<{
+    quote: string;
+    signalType: string;  // e.g. "framework opening", 
+                         // "explicit transition", 
+                         // "bottom-line-up-front", 
+                         // "executive summary"
+  }>;
+  missingElements: string[]; // Staff-level elements entirely 
+                              // absent from the response
+}
+
+async function extractTranscriptSignals(
+  ai: GoogleGenAI,
+  transcript: string,
+  label: string = 'transcript'
+): Promise<TranscriptExtraction | null> {
+  
+  const wordCount = transcript.trim().split(/\s+/).length;
+  console.log(
+    `[geminiService] Starting extraction pass for ${label}: 
+    ${wordCount} words`
+  );
+
+  const extractionPrompt = `
+You are a Staff PM interview analyst performing a structured 
+extraction pass on a candidate's interview transcript. Your job 
+is NOT to score or evaluate — only to extract and categorize 
+every meaningful moment from the transcript into structured JSON.
+
+EXTRACTION RULES:
+- Every quote must be verbatim — copy the exact words from the 
+  transcript, do not paraphrase or clean up
+- Quotes should be 5-40 words — long enough to be meaningful, 
+  short enough to be precise
+- Extract comprehensively — it is better to over-extract than 
+  to miss a moment. Aim for at least 6-10 items per category 
+  where the content supports it
+- If the candidate never mentioned something (e.g. never named 
+  a framework), leave that array empty
+- missingElements should list Staff-level behaviors that are 
+  entirely absent from the response (e.g. "No success metric 
+  defined", "No MVP scope stated", "No guardrail metric", 
+  "No second-order effects addressed")
+
+TRANSCRIPT:
+${transcript}
+
+Return only valid JSON matching this exact structure with no 
+preamble or commentary:
+{
+  "frameworks": [],
+  "metrics": [],
+  "claims": [],
+  "weaknesses": [],
+  "strengths": [],
+  "hedgingInstances": [],
+  "structureSignals": [],
+  "missingElements": []
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_CONFIG.EXTRACTION,
+      contents: extractionPrompt,
+      config: { responseMimeType: 'application/json' }
+    });
+    
+    const raw = response.text || "";
+    const parsed = JSON.parse(raw) as TranscriptExtraction;
+    
+    console.log(
+      `[geminiService] Extraction complete for ${label}: ` +
+      `${parsed.strengths.length} strengths, ` +
+      `${parsed.weaknesses.length} weaknesses, ` +
+      `${parsed.missingElements.length} missing elements`
+    );
+    
+    return parsed;
+    
+  } catch (err) {
+    console.error(
+      `[geminiService] Extraction failed for ${label}:`, err
+    );
+    // Return null — the caller will fall back to passing the 
+    // full transcript directly if extraction fails
+    return null;
+  }
+}
 
 export class GeminiService {
   constructor() {}
@@ -73,7 +213,7 @@ export class GeminiService {
       const prompt = "Transcribe this audio exactly. Do not add any commentary. Ensure highly technical PM terminology is captured precisely.";
       
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: MODEL_CONFIG.TRANSCRIPTION,
         contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] }
       });
       
@@ -83,17 +223,59 @@ export class GeminiService {
 
   async discoverMissions(): Promise<KnowledgeMission[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-    const prompt = `Search for 4 RECENT high-value PM resources from top firms (Lenny's, SVPG, Reforge). Return JSON array: [{id, title, source, url, type, summary, xpAwarded: number (25-50)}]`;
+    const prompt = `
+  Search the web right now for PM learning content published 
+  in the last 30 days.
+  
+  Only return results from these sources:
+  - Lenny's Newsletter (lennysnewsletter.com)
+  - SVPG (svpg.com)
+  - Reforge (reforge.com)
+  - First Round Review (review.firstround.com)
+  - Shreyas Doshi's Substack (shreyasdoshi.substack.com)
+  
+  For each result you find:
+  1. Confirm the URL exists and is accessible before including it
+  2. Use the exact URL from your search result — do not construct 
+     or guess URLs
+  3. Only include results with a clear publication date in the 
+     last 30 days
+  
+  Return a JSON array of exactly 4 objects. If fewer than 4 
+  verified results exist, return however many you found — do 
+  not pad with unverified results.
+  
+  Each object must have:
+  - id: lowercase-hyphenated slug max 40 chars, e.g. 
+    "lennys-metrics-framework-jan-2024"
+  - title: exact article or episode title
+  - source: publication name as it appears on the site
+  - url: the exact verified URL from your search
+  - type: exactly one of "article", "video", or "podcast"
+  - summary: 2-3 sentences describing the core PM insight 
+    a practitioner would take away
+  - xpAwarded: integer between 25 and 50. Use 50 for 
+    long-form strategic pieces, 25 for shorter reads
+`;
     
     try {
       return await this.withRetry(async () => {
         const response = await ai.models.generateContent({
-          model: 'gemini-flash-lite-latest',
+          model: MODEL_CONFIG.MISSIONS,
           contents: prompt,
           config: { tools: [{ googleSearch: {} }], temperature: 0.1 }
         });
         const missions = this.extractJson(response.text || "") || [];
-        return missions.map((m: any) => ({
+        
+        const validMissions = missions.filter((m: any) => {
+          if (!m.url || typeof m.url !== 'string') return false;
+          if (!m.url.startsWith('https://')) return false;
+          if (m.url.length < 15) return false;
+          if (/[^a-zA-Z0-9\-/.?=&:]/.test(m.url)) return false;
+          return true;
+        });
+
+        return validMissions.map((m: any) => ({
           ...m,
           xpAwarded: typeof m.xpAwarded === 'number' && !isNaN(m.xpAwarded) 
             ? Math.max(25, Math.min(50, m.xpAwarded)) 
@@ -108,20 +290,66 @@ export class GeminiService {
   async generateFollowUps(type: InterviewType, question: string, transcript: string) {
     return this.withRetry(async () => {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-      const trackContext = type === InterviewType.PRODUCT_SENSE 
-        ? "Challenge the user's goal definition and company-specific moat. Probe for 'second-order effects'—long-term consequences of their design."
-        : "Challenge the user's metric trade-offs. Ask about cannibalization and the 'unintended consequences' of optimizing for their primary metric.";
-
-      const prompt = `
-        Question: "${question}"
-        User Response: "${transcript}"
-        
-        Identify 2 Staff-level aggressive follow-up questions.
-        Context: ${trackContext}
-      `;
       
+      const prompt = type === InterviewType.PRODUCT_SENSE 
+        ? `
+  You are a Staff PM conducting a bar-raiser interview panel.
+  
+  The candidate answered this question:
+  "${question}"
+  
+  Their exact response was:
+  "${transcript}"
+  
+  Generate exactly 2 follow-up questions that:
+  1. Quote or directly reference a specific claim the candidate made
+  2. Force them to defend that claim or reveal an unexamined assumption
+  3. Are open-ended — never yes/no questions
+  4. Target the highest-priority gap from this list based on what 
+     is MISSING or WEAKEST in their response:
+     - They did not define a clear business goal before jumping to 
+       users or features
+     - Their chosen user segment lacks behavioral specificity
+     - Their solution is generic and does not leverage company moat
+     - They did not define a testable MVP with isolated risk
+     - They ignored second-order effects or cannibalization
+     - Their success metric is a vanity metric
+  5. Sound like a real interviewer, not a rubric checklist
+  
+  Format each question as a single direct sentence. Do not number 
+  them or add preamble.
+`
+        : `
+  You are a Staff PM conducting a bar-raiser interview panel.
+  
+  The candidate answered this question:
+  "${question}"
+  
+  Their exact response was:
+  "${transcript}"
+  
+  Generate exactly 2 follow-up questions that:
+  1. Quote or directly reference a specific claim the candidate made
+  2. Force them to defend their analytical logic or reveal a gap
+  3. Are open-ended — never yes/no questions
+  4. Target the highest-priority gap from this list based on what 
+     is MISSING or WEAKEST in their response:
+     - Their root cause framework was not MECE — they missed an 
+       entire category (internal vs external, data vs product)
+     - Their North Star metric is a vanity metric or lacks a guardrail
+     - They did not address how optimizing their metric harms another
+     - They confused absolute growth with incremental lift
+     - Their hypothesis cannot be validated without a full A/B test 
+       when a cheaper method exists
+     - They made a recommendation without a clear decision framework
+  5. Sound like a real interviewer, not a rubric checklist
+  
+  Format each question as a single direct sentence. Do not number 
+  them or add preamble.
+`;
+
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: MODEL_CONFIG.FOLLOW_UP,
         contents: prompt,
         config: { 
           responseMimeType: "application/json",
@@ -155,84 +383,178 @@ export class GeminiService {
   ): Promise<InterviewResult> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     
-    const specializedRubric = type === InterviewType.PRODUCT_SENSE ? `
-      AUDIT FOCUS: PRODUCT SENSE
-      1. Goal Definition
-         - < 60 (Needs Work): Jumps straight to features or personas without defining a business goal.
-         - 60-79 (Senior): Defines a valid business goal but fails to tie it to the company's core mission.
-         - 80-100 (Staff): Prioritizes a high-leverage business objective before personas and explicitly ties it to the company's strategic moat.
-      2. User Problem Prioritization
-         - < 60 (Needs Work): Fails to identify a critical user need or relies on superficial demographics.
-         - 60-79 (Senior): Identifies valid pain points but struggles to prioritize them based on impact and frequency.
-         - 80-100 (Staff): Segments users by behavior/pain point and identifies a "hair-on-fire" problem aligning with the business goal.
-      3. Solution Creativity & Design
-         - < 60 (Needs Work): Proposes generic, incremental, or unfeasible solutions.
-         - 60-79 (Senior): Proposes solid, logical solutions but lacks innovation or a "magic moment".
-         - 80-100 (Staff): Proposes a 10x better, innovative solution that creates a "magic moment" while remaining technically grounded.
-      4. Execution & Sequencing (MVP)
-         - < 60 (Needs Work): Struggles to define an MVP or just proposes building a smaller version of the final product.
-         - 60-79 (Senior): Defines a reasonable V1 but doesn't explicitly isolate the riskiest assumptions.
-         - 80-100 (Staff): Defines a ruthless MVP that specifically isolates and tests the riskiest assumption with high ROI.
-      5. Strategic Moat
-         - < 60 (Needs Work): Ignores the company's unique advantages or proposes generic solutions.
-         - 60-79 (Senior): Acknowledges the company's strengths but doesn't fully leverage them in the solution.
-         - 80-100 (Staff): Deeply integrates the company's unique leverage and ecosystem into the core of the strategy.
-      6. Second-Order Effects
-         - < 60 (Needs Work): Fails to consider long-term consequences or ecosystem impacts.
-         - 60-79 (Senior): Identifies basic risks but lacks a comprehensive mitigation strategy.
-         - 80-100 (Staff): Proactively addresses long-term ecosystem impact, cannibalization, and complex trade-offs.
-    ` : `
-      AUDIT FOCUS: ANALYTICAL THINKING
-      1. Root Cause Analysis (Debugging)
-         - < 60 (Needs Work): Jumps to conclusions without a structured approach to isolate variables.
-         - 60-79 (Senior): Uses a basic structure to investigate but misses edge cases or external factors.
-         - 80-100 (Staff): Uses a MECE framework to systematically isolate internal (bugs, tracking) vs. external (seasonality, competitors) factors.
-      2. Hypothesis Generation
-         - < 60 (Needs Work): Proposes random guesses without data backing or validation plans.
-         - 60-79 (Senior): Formulates reasonable hypotheses but relies on expensive A/B tests to validate everything.
-         - 80-100 (Staff): Formulates data-backed hypotheses and proposes specific, low-cost ways to validate them (e.g., querying a specific cohort).
-      3. Metric Funnel
-         - < 60 (Needs Work): Selects vanity metrics or fails to define a clear North Star.
-         - 60-79 (Senior): Defines a solid North Star but lacks comprehensive guardrail metrics.
-         - 80-100 (Staff): Establishes a robust metric funnel with a precise North Star and critical guardrails.
-      4. Unintended Consequences
-         - < 60 (Needs Work): Ignores how optimizing for the primary metric might harm other areas.
-         - 60-79 (Senior): Acknowledges potential harm but dismisses it without deep analysis.
-         - 80-100 (Staff): Deeply analyzes how success in X hurts Y and proposes sophisticated mitigations.
-      5. Incremental Lift
-         - < 60 (Needs Work): Confuses absolute growth with incremental lift or ignores cannibalization.
-         - 60-79 (Senior): Understands incremental lift but struggles to design a mechanism to measure it accurately.
-         - 80-100 (Staff): Perfectly distinguishes absolute growth from cannibalization and designs precise measurement mechanisms.
-      6. Trade-off Decision Making
-         - < 60 (Needs Work): Freezes when metrics conflict or makes a gut-based decision without a framework.
-         - 60-79 (Senior): Acknowledges the conflict but struggles to make a definitive recommendation.
-         - 80-100 (Staff): Establishes a clear framework for breaking ties (e.g., LTV vs. CAC, strategic alignment) and makes a definitive "go/no-go" recommendation.
-    `;
+  // Run extraction passes in parallel for both transcripts
+  const [initialExtraction, defenseExtraction] = await Promise.all([
+    extractTranscriptSignals(ai, initialTranscript, 'initialTranscript'),
+    extractTranscriptSignals(ai, followUpTranscript, 'followUpTranscript')
+  ]);
+
+  const initialWordCount = initialTranscript.trim()
+    .split(/\s+/).length;
+  const defenseWordCount = followUpTranscript.trim()
+    .split(/\s+/).length;
+
+  // Build the evidence block for the analysis prompt.
+  // If extraction succeeded, the full transcript is still passed 
+  // for annotation generation — but the extracted evidence is 
+  // prepended to guide the model's attention to specific moments.
+  // If extraction failed, the model receives the full transcript 
+  // with no extraction scaffolding.
+
+  const initialEvidenceBlock = initialExtraction 
+    ? `EXTRACTED EVIDENCE — INITIAL RESPONSE (${initialWordCount} words):
+The following signals were pre-extracted from the full transcript 
+to guide your analysis. Use these as your primary scoring evidence. 
+The full transcript follows for annotation generation.
+
+STRENGTHS IDENTIFIED:
+${JSON.stringify(initialExtraction.strengths, null, 2)}
+
+WEAKNESSES IDENTIFIED:
+${JSON.stringify(initialExtraction.weaknesses, null, 2)}
+
+FRAMEWORKS USED:
+${JSON.stringify(initialExtraction.frameworks, null, 2)}
+
+METRICS REFERENCED:
+${JSON.stringify(initialExtraction.metrics, null, 2)}
+
+KEY CLAIMS MADE:
+${JSON.stringify(initialExtraction.claims, null, 2)}
+
+STRUCTURE SIGNALS:
+${JSON.stringify(initialExtraction.structureSignals, null, 2)}
+
+HEDGING LANGUAGE FOUND:
+${JSON.stringify(initialExtraction.hedgingInstances, null, 2)}
+
+STAFF-LEVEL ELEMENTS MISSING ENTIRELY:
+${JSON.stringify(initialExtraction.missingElements, null, 2)}
+
+FULL TRANSCRIPT (use for annotation text anchoring only):
+${initialTranscript}`
+    : `FULL TRANSCRIPT — INITIAL RESPONSE (${initialWordCount} words):
+${initialTranscript}`;
+
+  const defenseEvidenceBlock = defenseExtraction
+    ? `EXTRACTED EVIDENCE — FOLLOW-UP DEFENSE (${defenseWordCount} words):
+${JSON.stringify(defenseExtraction, null, 2)}
+
+FULL TRANSCRIPT (use for annotation text anchoring only):
+${followUpTranscript}`
+    : `FULL TRANSCRIPT — FOLLOW-UP DEFENSE (${defenseWordCount} words):
+${followUpTranscript}`;
+
+    const rubricPromptText = Object.entries(RUBRIC_DEFINITIONS)
+      .filter(([key]) => {
+        const psKeys = ["Goal Definition", "User Problem Prioritization", "Solution Creativity & Design", "Execution & Sequencing (MVP)", "Strategic Moat", "Second-Order Effects"];
+        return type === InterviewType.PRODUCT_SENSE 
+          ? psKeys.includes(key) 
+          : !psKeys.includes(key);
+      })
+      .map(([name, def], i) => 
+        `${i + 1}. ${name}\n${def.promptDescription}`
+      )
+      .join('\n');
+
+    const goldenPathTemplate = type === InterviewType.PRODUCT_SENSE 
+      ? GOLDEN_PATH_PRODUCT_SENSE 
+      : GOLDEN_PATH_ANALYTICAL;
+    const goldenPathJson = JSON.stringify(goldenPathTemplate, null, 2);
 
     const prompt = `
       ACT AS A STAFF PM BAR-RAISER.
       Align with Lenny's Newsletter standards.
 
       Question: ${question}
-      Response: ${initialTranscript}
+      Response: ${initialEvidenceBlock}
       Follow-up Qs: ${followUpQuestions.join(', ')}
-      Follow-up Defense: ${followUpTranscript}
+      Follow-up Defense: ${defenseEvidenceBlock}
       
-      ${specializedRubric}
+      AUDIT FOCUS: ${type === InterviewType.PRODUCT_SENSE ? 'PRODUCT SENSE' : 'ANALYTICAL THINKING'}
+      ${rubricPromptText}
+
+      GOLDEN PATH REFERENCE (DO NOT MODIFY THIS):
+      The following is the fixed canonical Staff-level path for this interview type. Use it exactly as provided for the goldenPath field in your response. Do not invent new steps or reorder them.
+      
+      ${goldenPathJson}
 
       LOGIC MAPPING INSTRUCTIONS:
       - userLogicPath: Break down the user's response into a sequence of logical steps. For each step, determine if it aligns with the Staff Golden Path (isAligned). If it does NOT align, provide a specific 'staffPivot' explaining the tactical correction for that specific line.
-      - goldenPath: Provide the ideal Staff-level sequence. MUST be at least 5 steps long to ensure a comprehensive strategic map.
+      - goldenPath: Return the GOLDEN PATH REFERENCE provided above exactly as-is. Do not generate a new path. Copy it verbatim.
 
       COMMUNICATION ANALYSIS INSTRUCTIONS:
-      - Evaluate Stakeholder Influence (Structure): Does the candidate structure their answer in a way that brings cross-functional partners (Engineering, Design, Leadership) along? 
-      - Staff Standard for Structure: Uses executive summaries, "Rule of Three", and explicitly calls out when they are making an assumption that requires engineering validation.
+      Evaluate the written transcript only. Do not infer vocal qualities.
+      Score each dimension 0-100:
+
+      - clarityScore: Is the response easy to follow? Does it avoid jargon without explanation? Are transitions explicit?
+      - structureScore: Does the candidate use a recognizable PM framework? Do they signal structure explicitly (e.g. "First... Second... Finally...")? Staff standard: uses executive summary + Rule of Three.
+      - specificityScore: Are claims backed by specific data, examples, percentages, or named frameworks? Penalize vague statements like "increase engagement" with no mechanism.
+      - executiveFramingScore: Does the response lead with the key insight or recommendation before the supporting detail? Staff standard: bottom-line-up-front structure.
+      - hedgingLanguageFound: List every instance of weak hedging language found verbatim (e.g. "I think", "maybe", "sort of", "kind of", "I guess", "probably"). Return as array of strings.
+      - overallAssessment: "Strong", "Average", or "Needs Work"
+      - summary: 2-3 sentences describing the most important communication pattern to fix, with a specific example from the transcript.
+
+      ANNOTATION INSTRUCTIONS:
+      - annotatedVision covers the initial response transcript
+      - annotatedDefense covers the follow-up defense transcript
+      - Split each transcript into chunks of 1-3 sentences per annotation
+      - Each annotation must have a type: "strength", "weakness", "qualifier", or "neutral"
+      - Neutral annotations require no feedback field
+      - For strength, weakness, and qualifier annotations, the feedback field MUST follow this exact format with no deviation:
+
+        [One sentence critique of why this phrase is strong or weak]
+        REWRITE: [A rewritten version of the candidate's exact words at Staff level — keep it to 1-2 sentences]
+        ACTION: [One specific, concrete thing the candidate should practice or learn to improve this skill]
+
+      - Also populate the whyItMatters field for all non-neutral annotations with 1-2 sentences explaining the strategic significance of this gap or strength in a real PM interview
+      - Aim for roughly 30% strength, 40% weakness/qualifier, 30% neutral across each transcript — do not annotate every phrase as a weakness
+
+      ANNOTATION GROUNDING INSTRUCTIONS:
+      The EXTRACTED EVIDENCE blocks above contain pre-identified 
+      verbatim quotes from the transcript already categorized as 
+      strengths or weaknesses. When generating annotatedVision and 
+      annotatedDefense arrays:
+
+      1. Prioritize quotes from the extraction blocks as annotation 
+         anchors — these are the highest-signal moments
+      2. The text field of each annotation must be verbatim text 
+         from the original transcript — do not paraphrase or modify
+      3. Use the severity field from the weaknesses extraction to 
+         inform annotation type: critical → weakness, 
+         moderate → weakness or qualifier, minor → qualifier
+      4. Every item in missingElements must generate at least one 
+         weakness annotation that references the absence explicitly
+      5. Every item in the strengths extraction should generate a 
+         strength annotation
+      6. Fill gaps between high-signal annotations with neutral 
+         annotations to ensure full transcript coverage
 
       SCORING INSTRUCTIONS:
-      - ALL scores (rubricScores, confidenceScore, clarityScore, structureScore) MUST be on a 0-100 scale.
-      - 0-59: Needs Work
-      - 60-79: Average/Senior
-      - 80-100: Staff/Bar-Raiser
+
+      All scores must use the full 0-100 range. Use these anchors:
+
+      SCORE 90-100 (Exceptional / Staff+):
+      The response would impress even a skeptical bar-raiser. The candidate demonstrated the behavior without prompting, integrated company-specific context, used precise quantitative reasoning, and pre-empted counterarguments. Fewer than 1 in 10 candidates reach this tier.
+
+      SCORE 75-89 (Strong / Staff):
+      The candidate demonstrated the required behavior clearly. There may be minor gaps in depth or precision but the core logic is sound and the approach is replicable. This represents a hire signal at most top-tier PM teams.
+
+      SCORE 60-74 (Adequate / Senior PM):
+      The candidate touched on the right concept but lacked depth, specificity, or proactive framing. A senior PM at a mid-sized company would produce this response. It is not a bar-raise signal.
+
+      SCORE 40-59 (Developing / Associate PM):
+      The candidate showed awareness of the concept but could not execute it under pressure. The response has significant gaps that would concern an interviewer. Coaching required.
+
+      SCORE 0-39 (Needs Work):
+      The candidate did not demonstrate this skill. The response either missed the concept entirely or actively contradicted best practice.
+
+      CALIBRATION RULES:
+      - Do not give any score above 85 unless the response contains a specific, quantified claim or a company-specific insight
+      - Do not give any score above 75 unless the candidate explicitly structured their answer using a recognizable framework
+      - Do not give the same score to more than 2 rubric categories in one session — differentiate based on relative performance
+      - The overallScore will be calculated mathematically from your rubric scores — calibrate each category independently
+      - A response can score 90 in one category and 45 in another — uneven profiles are more accurate than uniformly average scores
     `;
 
     const responseSchema = {
@@ -286,14 +608,18 @@ export class GeminiService {
         communicationAnalysis: {
           type: Type.OBJECT,
           properties: {
-            tone: { type: Type.STRING },
-            confidenceScore: { type: Type.NUMBER },
+            specificityScore: { type: Type.NUMBER },
+            executiveFramingScore: { type: Type.NUMBER },
+            hedgingLanguageFound: { 
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            },
             clarityScore: { type: Type.NUMBER },
             structureScore: { type: Type.NUMBER },
             overallAssessment: { type: Type.STRING },
             summary: { type: Type.STRING }
           },
-          required: ["tone", "confidenceScore", "clarityScore", "structureScore", "overallAssessment", "summary"]
+          required: ["specificityScore", "executiveFramingScore", "hedgingLanguageFound", "clarityScore", "structureScore", "overallAssessment", "summary"]
         },
         annotatedVision: {
           type: Type.ARRAY,
@@ -355,14 +681,14 @@ export class GeminiService {
 
     const formatResult = (data: any): InterviewResult => {
       const rubricScores = data.rubricScores || [];
-      const comms = data.communicationAnalysis || { confidenceScore: 0, clarityScore: 0, structureScore: 0 };
+      const comms = data.communicationAnalysis || { clarityScore: 0, structureScore: 0, specificityScore: 0, executiveFramingScore: 0 };
       
       // Calculate scores mathematically
       const avgRubric = rubricScores.length > 0 
         ? rubricScores.reduce((sum: number, r: any) => sum + r.score, 0) / rubricScores.length 
         : 0;
       
-      const avgComms = (comms.confidenceScore + comms.clarityScore + (comms.structureScore || 0)) / 3;
+      const avgComms = (comms.clarityScore + (comms.structureScore || 0) + (comms.specificityScore || 0) + (comms.executiveFramingScore || 0)) / 4;
       
       // Overall score: 80% rubric, 20% communication
       const overallScore = Math.round((avgRubric * 0.8) + (avgComms * 0.2));
@@ -391,11 +717,25 @@ export class GeminiService {
       };
     };
 
+  const extractionSummarySize = 
+    (initialExtraction ? JSON.stringify(initialExtraction) : '')
+      .split(/\s+/).length +
+    (defenseExtraction ? JSON.stringify(defenseExtraction) : '')
+      .split(/\s+/).length;
+      
+  console.log(
+    `[geminiService] analyzeFullSession — ` +
+    `Initial transcript: ${initialWordCount} words, ` +
+    `Defense transcript: ${defenseWordCount} words, ` +
+    `Extraction summary: ~${extractionSummarySize} words. ` +
+    `Full transcripts passed for annotation anchoring.`
+  );
+
     return this.withRetry(async () => {
       try {
         // Attempt Pro Audit with lower thinking level for stability
         const response = await ai.models.generateContent({
-          model: 'gemini-3.1-pro-preview',
+          model: MODEL_CONFIG.ANALYSIS_PRIMARY,
           contents: prompt,
           config: { 
             responseMimeType: "application/json",
@@ -411,7 +751,7 @@ export class GeminiService {
 
       // Fallback to Flash for guaranteed completion
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: MODEL_CONFIG.ANALYSIS_FALLBACK,
         contents: prompt,
         config: { 
           responseMimeType: "application/json",
@@ -432,13 +772,39 @@ export class GeminiService {
   async verifyDeltaPractice(delta: ImprovementItem, audioBase64: string, mimeType: string): Promise<{ success: boolean; feedback: string }> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     const prompt = `
-      Verify if the user successfully bridged this gap: "${delta.action}".
-      Look for: Executive presence and precise PM terminology.
-    `;
+  You are a Staff PM coach listening to a practice recording.
+  
+  The candidate is working on this specific improvement:
+  Target Skill: "${delta.action}"
+  Category: "${delta.category}"
+  
+  What success looks like:
+  ${delta.howTo}
+  
+  Why this skill matters:
+  ${delta.whyItMatters}
+  
+  Listen to the recording and evaluate against the success 
+  criteria above specifically. Then return:
+  
+  success: true ONLY if the candidate clearly demonstrated 
+  the specific behavior described in "What success looks like". 
+  A generic good answer is not sufficient — the specific 
+  framing or structure must be present.
+  
+  feedback: Write 2-3 sentences of coaching. Structure it as:
+  - What they did well in this attempt (be specific, quote 
+    their words if possible)
+  - One concrete thing to adjust in the next attempt
+  - End with an encouraging but honest closing sentence
+  
+  Do not give generic PM interview feedback. Every sentence 
+  must relate directly to the target skill above.
+`;
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: MODEL_CONFIG.DELTA_VERIFY,
         contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] },
         config: { 
           responseMimeType: "application/json",

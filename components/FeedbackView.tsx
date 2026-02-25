@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep, UserLogicStep } from '../types.ts';
+import { RUBRIC_DEFINITIONS } from '../constants.tsx';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -667,105 +668,6 @@ type ScoreLevel = {
   example: string;
 };
 
-const RUBRIC_STANDARDS: Record<string, { standard: string; levels: ScoreLevel[] }> = {
-  'Goal Definition': {
-    standard: 'Business objective prioritized before personas.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Jumps straight to features or personas without defining a business goal.', example: 'I would build a dashboard for managers to see team velocity.' },
-      { range: '60-79 (Senior)', description: 'Defines a valid business goal but fails to tie it to the company\'s core mission.', example: 'The goal is to increase engagement by 10% so we can drive more ad revenue.' },
-      { range: '80-100 (Staff)', description: 'Prioritizes a high-leverage business objective before personas and explicitly ties it to the company\'s strategic moat.', example: 'Before discussing features, our primary business objective must be B2B seat expansion. Given our enterprise moat, we should target the procurement persona first to reduce churn.' }
-    ]
-  },
-  'User Problem Prioritization': {
-    standard: 'Identifies a critical, unmet user need and prioritizes it based on impact and frequency.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Fails to identify a critical user need or relies on superficial demographics.', example: 'We should target millennials because they use phones a lot.' },
-      { range: '60-79 (Senior)', description: 'Identifies valid pain points but struggles to prioritize them based on impact and frequency.', example: 'Users find the checkout process too long, so we should shorten it.' },
-      { range: '80-100 (Staff)', description: 'Segments users by behavior/pain point and identifies a "hair-on-fire" problem aligning with the business goal.', example: 'Instead of targeting all small businesses, we should focus specifically on high-volume merchants who experience a 30% drop-off during the payment reconciliation step, as solving this directly impacts our retention goal.' }
-    ]
-  },
-  'Solution Creativity & Design': {
-    standard: 'Innovative, feasible, and directly addresses the prioritized problem.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Proposes generic, incremental, or unfeasible solutions.', example: 'Let\'s just add a button that does it automatically using AI.' },
-      { range: '60-79 (Senior)', description: 'Proposes solid, logical solutions but lacks innovation or a "magic moment".', example: 'We can build a dashboard that aggregates all their transactions in one place.' },
-      { range: '80-100 (Staff)', description: 'Proposes a 10x better, innovative solution that creates a "magic moment" while remaining technically grounded.', example: 'Rather than building another dashboard they have to check, we can use webhooks to push reconciliation anomalies directly into their existing Slack workflow, creating a zero-friction "magic moment".' }
-    ]
-  },
-  'Execution & Sequencing (MVP)': {
-    standard: 'Breaks down a grand vision into a testable, high-ROI first release.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Struggles to define an MVP or just proposes building a smaller version of the final product.', example: 'For the MVP, we will just build the app with fewer features.' },
-      { range: '60-79 (Senior)', description: 'Defines a reasonable V1 but doesn\'t explicitly isolate the riskiest assumptions.', example: 'Our MVP will be a basic version of the Slack integration that only supports one type of alert.' },
-      { range: '80-100 (Staff)', description: 'Defines a ruthless MVP that specifically isolates and tests the riskiest assumption with high ROI.', example: 'Our riskiest assumption isn\'t technical feasibility, it\'s whether merchants will actually act on these alerts. Our MVP should be a simple daily email digest generated manually by ops; if open rates exceed 40%, we invest in the automated Slack integration.' }
-    ]
-  },
-  'Strategic Moat': {
-    standard: 'Unique company leverage.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Ignores the company\'s unique advantages or proposes generic solutions.', example: 'We should add a generic AI chatbot to help users find things faster.' },
-      { range: '60-79 (Senior)', description: 'Acknowledges the company\'s strengths but doesn\'t fully leverage them in the solution.', example: 'Since we have a lot of user data, we can personalize the feed.' },
-      { range: '80-100 (Staff)', description: 'Deeply integrates the company\'s unique leverage and ecosystem into the core of the strategy.', example: 'Our proprietary distribution network is our moat. We shouldn\'t just build a new app; we should embed this functionality directly into the existing partner portal where we already have 90% market penetration.' }
-    ]
-  },
-  'Second-Order Effects': {
-    standard: 'Long-term ecosystem impact.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Fails to consider long-term consequences or ecosystem impacts.', example: 'Let\'s just make the button bigger so more people click it.' },
-      { range: '60-79 (Senior)', description: 'Identifies basic risks but lacks a comprehensive mitigation strategy.', example: 'If we increase notifications, users might get annoyed and turn them off.' },
-      { range: '80-100 (Staff)', description: 'Proactively addresses long-term ecosystem impact, cannibalization, and complex trade-offs.', example: 'Introducing a freemium tier will likely cannibalize our low-end paid plans by 15% in Q1. However, by gating the enterprise SSO feature, we create a forced upgrade path that will offset this loss by Q3 through higher ACV.' }
-    ]
-  },
-  'Metric Funnel': {
-    standard: 'North Star + Guardrails.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Selects vanity metrics or fails to define a clear North Star.', example: 'We should track total registered users and page views.' },
-      { range: '60-79 (Senior)', description: 'Defines a solid North Star but lacks comprehensive guardrail metrics.', example: 'Our North Star is Weekly Active Users (WAU). We will measure success by how much WAU increases.' },
-      { range: '80-100 (Staff)', description: 'Establishes a robust metric funnel with a precise North Star and critical guardrails.', example: 'Our North Star is Weekly Paid Active Users. Our primary guardrail is Customer Support Tickets per 1k Users to ensure we aren\'t driving engagement through confusing dark patterns.' }
-    ]
-  },
-  'Unintended Consequences': {
-    standard: 'How success in X hurts Y.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Ignores how optimizing for the primary metric might harm other areas.', example: 'If we send more emails, open rates will go up.' },
-      { range: '60-79 (Senior)', description: 'Acknowledges potential harm but dismisses it without deep analysis.', example: 'We might see some unsubscribes, but the increased conversion rate is worth it.' },
-      { range: '80-100 (Staff)', description: 'Deeply analyzes how success in X hurts Y and proposes sophisticated mitigations.', example: 'Optimizing for Time Spent on the feed will inevitably cannibalize Messages Sent. We must establish a threshold: if messaging drops by more than 5%, we roll back, as messaging is our core retention driver.' }
-    ]
-  },
-  'Incremental Lift': {
-    standard: 'Absolute growth vs cannibalization.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Confuses absolute growth with incremental lift or ignores cannibalization.', example: 'The new feature got 10,000 clicks, so it\'s a huge success!' },
-      { range: '60-79 (Senior)', description: 'Understands incremental lift but struggles to design a mechanism to measure it accurately.', example: 'We need to run an A/B test to see if the new feature actually drives more total revenue.' },
-      { range: '80-100 (Staff)', description: 'Perfectly distinguishes absolute growth from cannibalization and designs precise measurement mechanisms.', example: 'To measure true incremental lift, we will use a holdout group. We aren\'t just looking at the $50k generated by the new widget; we need to verify that the control group didn\'t generate $45k through the old flow anyway, meaning our true lift is only $5k.' }
-    ]
-  },
-  'Root Cause Analysis (Debugging)': {
-    standard: 'Systematically isolates variables when a metric drops unexpectedly.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Jumps to conclusions without a structured approach to isolate variables.', example: 'Traffic dropped because our new feature is confusing.' },
-      { range: '60-79 (Senior)', description: 'Uses a basic structure to investigate but misses edge cases or external factors.', example: 'I would check if there are any bugs, and then look at the funnel drop-off.' },
-      { range: '80-100 (Staff)', description: 'Uses a MECE framework to systematically isolate internal (bugs, tracking) vs. external (seasonality, competitors) factors.', example: 'Before looking at user behavior, I would establish a MECE tree: First, is this a data artifact (tracking bug)? Second, is it internal (a bad release)? Third, is it external (seasonality, competitor launch)?' }
-    ]
-  },
-  'Hypothesis Generation': {
-    standard: 'Formulates data-backed hypotheses and proposes specific, low-cost ways to validate them.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Proposes random guesses without data backing or validation plans.', example: 'Maybe users just don\'t like the new color.' },
-      { range: '60-79 (Senior)', description: 'Formulates reasonable hypotheses but relies on expensive A/B tests to validate everything.', example: 'I think the new onboarding is too long. Let\'s run an A/B test with a shorter version.' },
-      { range: '80-100 (Staff)', description: 'Formulates data-backed hypotheses and proposes specific, low-cost ways to validate them.', example: 'My hypothesis is that the drop in conversion is isolated to Android users on older OS versions. Before building a fix, we can validate this cheaply by querying the conversion rate grouped by OS version and device age.' }
-    ]
-  },
-  'Trade-off Decision Making': {
-    standard: 'Handles conflicting data with a clear framework and makes a definitive recommendation.',
-    levels: [
-      { range: '< 60 (Needs Work)', description: 'Freezes when metrics conflict or makes a gut-based decision without a framework.', example: 'Since engagement is up, we should just launch it.' },
-      { range: '60-79 (Senior)', description: 'Acknowledges the conflict but struggles to make a definitive recommendation.', example: 'Engagement is up but revenue is down, so we should probably discuss this with leadership to decide.' },
-      { range: '80-100 (Staff)', description: 'Establishes a clear framework for breaking ties and makes a definitive "go/no-go" recommendation.', example: 'While engagement increased by 5%, the 2% drop in revenue breaks our primary guardrail. Given our current company OKR is profitability over growth, my recommendation is a definitive no-go until we patch the monetization leak.' }
-    ]
-  }
-};
-
 const RubricDetailModal: React.FC<{ 
   isOpen: boolean; 
   onClose: () => void; 
@@ -903,9 +805,10 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
   const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
 
   const commData = useMemo(() => [
-    { category: 'Confidence', value: result.communicationAnalysis?.confidenceScore || 0, full: 100 },
+    { category: 'Specificity', value: result.communicationAnalysis?.specificityScore || 0, full: 100 },
     { category: 'Clarity', value: result.communicationAnalysis?.clarityScore || 0, full: 100 },
     { category: 'Structure', value: result.communicationAnalysis?.structureScore || 0, full: 100 },
+    { category: 'Exec Frame', value: result.communicationAnalysis?.executiveFramingScore || 0, full: 100 },
     { category: 'Vision', value: result.visionScore || 0, full: 100 },
     { category: 'Defense', value: result.defenseScore || 0, full: 100 },
   ], [result]);
@@ -1120,17 +1023,6 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                     {result.communicationAnalysis?.summary}
                   </p>
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white/5 p-4 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors">
-                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Detected Tone</span>
-                    <span className="text-xs font-black text-white">{result.communicationAnalysis?.tone || 'Neutral'}</span>
-                  </div>
-                  <div className="bg-white/5 p-4 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors">
-                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-1">Staff Tip</span>
-                    <span className="text-[10px] font-bold text-indigo-300">Drive opinionated narrative</span>
-                  </div>
-                </div>
               </div>
 
               <div className="pt-6 border-t border-white/5 flex items-center justify-between">
@@ -1144,14 +1036,31 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                   </div>
                 </div>
                 <div className="flex flex-col items-end">
-                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Confidence</span>
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Exec Framing</span>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.confidenceScore}%</span>
+                    <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.executiveFramingScore}%</span>
                     <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500" style={{ width: `${result.communicationAnalysis?.confidenceScore}%` }}></div>
+                      <div className="h-full bg-emerald-500" style={{ width: `${result.communicationAnalysis?.executiveFramingScore}%` }}></div>
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="pt-4 border-t border-white/5">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-2">Hedging Language Detected</span>
+                {result.communicationAnalysis?.hedgingLanguageFound && result.communicationAnalysis.hedgingLanguageFound.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {result.communicationAnalysis.hedgingLanguageFound.map((phrase, idx) => (
+                      <span key={idx} className="px-2 py-1 bg-rose-500/20 text-rose-300 text-[10px] font-bold rounded-full border border-rose-500/30">
+                        "{phrase}"
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="inline-block px-2 py-1 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold rounded-full border border-emerald-500/30">
+                    No hedging detected
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1162,7 +1071,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
       {/* RUBRIC BREAKDOWN */}
       <div className="flex flex-col gap-6">
          {result.rubricScores?.map((r, i) => {
-           const standard = RUBRIC_STANDARDS[r.category] || RUBRIC_STANDARDS[Object.keys(RUBRIC_STANDARDS).find(k => r.category.includes(k)) || ''];
+           const standard = RUBRIC_DEFINITIONS[r.category] || RUBRIC_DEFINITIONS[Object.keys(RUBRIC_DEFINITIONS).find(k => r.category.includes(k)) || ''];
 
            return (
              <div key={i}>
@@ -1207,7 +1116,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
         category={activeRubricIndex !== null ? result.rubricScores[activeRubricIndex].category : ''}
         score={activeRubricIndex !== null ? result.rubricScores[activeRubricIndex].score : 0}
         reasoning={activeRubricIndex !== null ? result.rubricScores[activeRubricIndex].reasoning : ''}
-        standard={activeRubricIndex !== null ? (RUBRIC_STANDARDS[result.rubricScores[activeRubricIndex].category] || RUBRIC_STANDARDS[Object.keys(RUBRIC_STANDARDS).find(k => result.rubricScores[activeRubricIndex].category.includes(k)) || '']) : undefined}
+        standard={activeRubricIndex !== null ? (RUBRIC_DEFINITIONS[result.rubricScores[activeRubricIndex].category] || RUBRIC_DEFINITIONS[Object.keys(RUBRIC_DEFINITIONS).find(k => result.rubricScores[activeRubricIndex].category.includes(k)) || '']) : undefined}
       />
 
       {/* REDLINE TRANSCRIPT */}
