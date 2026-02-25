@@ -124,6 +124,17 @@ const App: React.FC = () => {
     setHasCheckpoint(false);
   };
 
+  const handleNextQuestion = () => {
+    if (currentQuestion) {
+      const filtered = QUESTIONS.filter(q => q.type === currentQuestion.type);
+      const remaining = filtered.filter(q => q.id !== currentQuestion.id);
+      const nextQ = remaining.length > 0 
+        ? remaining[Math.floor(Math.random() * remaining.length)] 
+        : filtered[Math.floor(Math.random() * filtered.length)];
+      setCurrentQuestion(nextQ);
+    }
+  };
+
   const handleResumeAudit = async () => {
     const cachedInitial = sessionStorage.getItem('last_checkpoint_initial');
     const cachedFollowUp = sessionStorage.getItem('last_checkpoint_followup');
@@ -172,7 +183,11 @@ const App: React.FC = () => {
       setHasCheckpoint(false);
     } catch (err: any) {
       console.error("[Staff Audit Error]", err);
-      setApiError("Staff Audit failed. Your text is saved—you can retry from the dashboard.");
+      const errorMessage = 
+        (err instanceof Error && err.message.includes('429'))
+          ? 'Analysis is temporarily rate limited. Please wait 30 seconds and try again. This happens when multiple analyses run in quick succession.'
+          : 'Staff Audit failed. Your text is saved—you can retry from the dashboard.';
+      setApiError(errorMessage);
       setPhase('config');
     } finally {
       setIsProcessing(false);
@@ -256,7 +271,11 @@ const App: React.FC = () => {
         setHasCheckpoint(false);
         setPhase('result');
       } catch (err: any) {
-        setApiError("Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.");
+        const errorMessage = 
+          (err instanceof Error && err.message.includes('429'))
+            ? 'Analysis is temporarily rate limited. Please wait 30 seconds and try again. This happens when multiple analyses run in quick succession.'
+            : 'Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.';
+        setApiError(errorMessage);
         setPhase('config');
       } finally {
         setIsProcessing(false);
@@ -368,7 +387,8 @@ const App: React.FC = () => {
             <h2 className="text-4xl font-black text-slate-900 leading-tight max-w-3xl mx-auto">{currentQuestion.text}</h2>
             <div className="flex justify-center gap-4">
                <button onClick={() => setPhase('recording')} className="bg-indigo-600 text-white font-black py-6 px-16 rounded-[2rem] text-xl shadow-xl hover:bg-indigo-700 active:scale-95">Begin My Response</button>
-               <button onClick={() => setPhase('config')} className="bg-slate-100 text-slate-600 font-black py-6 px-10 rounded-[2rem] text-xl">Skip</button>
+               <button onClick={handleNextQuestion} className="bg-slate-100 text-slate-600 font-black py-6 px-10 rounded-[2rem] text-xl hover:bg-slate-200 active:scale-95">Next</button>
+               <button onClick={() => setPhase('config')} className="bg-slate-100 text-slate-600 font-black py-6 px-10 rounded-[2rem] text-xl hover:bg-slate-200 active:scale-95">Cancel</button>
             </div>
           </div>
         )}

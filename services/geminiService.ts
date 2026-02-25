@@ -63,6 +63,136 @@ interface TranscriptExtraction {
                               // absent from the response
 }
 
+class RateLimitedQueue {
+  private queue: Array<() => Promise<unknown>> = [];
+  private activeCount = 0;
+  private readonly maxConcurrent: number;
+  private readonly minDelayMs: number;
+  private lastCallTime = 0;
+
+  constructor(maxConcurrent = 2, minDelayMs = 500) {
+    // maxConcurrent: max simultaneous in-flight API calls
+    // minDelayMs: minimum gap between any two API calls firing
+    this.maxConcurrent = maxConcurrent;
+    this.minDelayMs = minDelayMs;
+  }
+
+  async add<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          const result = await fn();
+          resolve(result as T);
+        } catch (err) {
+          reject(err);
+        }
+      });
+      this.process();
+    });
+  }
+
+  private async process(): Promise<void> {
+    if (this.activeCount >= this.maxConcurrent) return;
+    if (this.queue.length === 0) return;
+
+    const now = Date.now();
+    const timeSinceLast = now - this.lastCallTime;
+    
+    if (timeSinceLast < this.minDelayMs) {
+      setTimeout(
+        () => this.process(), 
+        this.minDelayMs - timeSinceLast
+      );
+      return;
+    }
+
+    const fn = this.queue.shift();
+    if (!fn) return;
+
+    this.activeCount++;
+    this.lastCallTime = Date.now();
+
+    try {
+      await fn();
+    } finally {
+      this.activeCount--;
+      this.process();
+    }
+  }
+}
+
+// Single shared queue instance for all Gemini Flash calls.
+// Pro calls bypass the queue since they are infrequent.
+const flashQueue = new RateLimitedQueue(2, 500);
+
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    label?: string;
+  } = {}
+): Promise<T> {
+  const {
+    maxRetries = 3,
+    baseDelayMs = 2000,
+    maxDelayMs = 30000,
+    label = 'API call'
+  } = options;
+
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastError = err;
+
+      const is429 = 
+        (err instanceof Error && err.message.includes('429')) ||
+        (typeof err === 'object' && err !== null && 
+         'status' in err && (err as { status: number }).status === 429);
+
+      const isRetryable =
+        is429 ||
+        (err instanceof Error && (
+          err.message.includes('500') ||
+          err.message.includes('503') ||
+          err.message.includes('network') ||
+          err.message.toLowerCase().includes('timeout')
+        ));
+
+      if (!isRetryable || attempt === maxRetries) {
+        console.error(
+          `[geminiService] ${label} failed permanently ` +
+          `after ${attempt + 1} attempt(s):`, err
+        );
+        throw err;
+      }
+
+      // Exponential backoff with jitter.
+      // 429s get a longer base delay to respect rate limits.
+      const backoffBase = is429 ? baseDelayMs * 3 : baseDelayMs;
+      const delay = Math.min(
+        backoffBase * Math.pow(2, attempt) + 
+        Math.random() * 1000,
+        maxDelayMs
+      );
+
+      console.warn(
+        `[geminiService] ${label} attempt ${attempt + 1} failed ` +
+        `${is429 ? '(rate limited)' : '(error)'}. ` +
+        `Retrying in ${Math.round(delay / 1000)}s...`
+      );
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
 async function extractTranscriptSignals(
   ai: GoogleGenAI,
   transcript: string,
@@ -113,11 +243,16 @@ preamble or commentary:
 }`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: MODEL_CONFIG.EXTRACTION,
-      contents: extractionPrompt,
-      config: { responseMimeType: 'application/json' }
-    });
+    const response = await flashQueue.add(() =>
+      retryWithBackoff(
+        () => ai.models.generateContent({
+          model: MODEL_CONFIG.EXTRACTION,
+          contents: extractionPrompt,
+          config: { responseMimeType: 'application/json' }
+        }),
+        { label: `extractTranscriptSignals — ${label}` }
+      )
+    );
     
     const raw = response.text || "";
     const parsed = JSON.parse(raw) as TranscriptExtraction;
@@ -193,32 +328,25 @@ export class GeminiService {
     }
   }
 
-  private async withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
-    try {
-      return await fn();
-    } catch (error) {
-      if (retries <= 0) throw error;
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return this.withRetry(fn, retries - 1, delay * 2);
-    }
-  }
-
   /**
    * PASS 1: Transcription using Flash. 
    * Optimized for large audio files (up to 30 mins) where latency and cost-efficiency matter most.
    */
   async transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
-    return this.withRetry(async () => {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-      const prompt = "Transcribe this audio exactly. Do not add any commentary. Ensure highly technical PM terminology is captured precisely.";
-      
-      const response = await ai.models.generateContent({
-        model: MODEL_CONFIG.TRANSCRIPTION,
-        contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] }
-      });
-      
-      return response.text || "";
-    });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+    const prompt = "Transcribe this audio exactly. Do not add any commentary. Ensure highly technical PM terminology is captured precisely.";
+    
+    const response = await flashQueue.add(() =>
+      retryWithBackoff(
+        () => ai.models.generateContent({
+          model: MODEL_CONFIG.TRANSCRIPTION,
+          contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] }
+        }),
+        { label: 'transcribeAudio — transcription' }
+      )
+    );
+    
+    return response.text || "";
   }
 
   async discoverMissions(): Promise<KnowledgeMission[]> {
@@ -259,40 +387,42 @@ export class GeminiService {
 `;
     
     try {
-      return await this.withRetry(async () => {
-        const response = await ai.models.generateContent({
-          model: MODEL_CONFIG.MISSIONS,
-          contents: prompt,
-          config: { tools: [{ googleSearch: {} }], temperature: 0.1 }
-        });
-        const missions = this.extractJson(response.text || "") || [];
-        
-        const validMissions = missions.filter((m: any) => {
-          if (!m.url || typeof m.url !== 'string') return false;
-          if (!m.url.startsWith('https://')) return false;
-          if (m.url.length < 15) return false;
-          if (/[^a-zA-Z0-9\-/.?=&:]/.test(m.url)) return false;
-          return true;
-        });
-
-        return validMissions.map((m: any) => ({
-          ...m,
-          xpAwarded: typeof m.xpAwarded === 'number' && !isNaN(m.xpAwarded) 
-            ? Math.max(25, Math.min(50, m.xpAwarded)) 
-            : Math.floor(Math.random() * 26) + 25
-        }));
+      const response = await flashQueue.add(() =>
+        retryWithBackoff(
+          () => ai.models.generateContent({
+            model: MODEL_CONFIG.MISSIONS,
+            contents: prompt,
+            config: { tools: [{ googleSearch: {} }], temperature: 0.1 }
+          }),
+          { label: 'discoverMissions — search' }
+        )
+      );
+      const missions = this.extractJson(response.text || "") || [];
+      
+      const validMissions = missions.filter((m: any) => {
+        if (!m.url || typeof m.url !== 'string') return false;
+        if (!m.url.startsWith('https://')) return false;
+        if (m.url.length < 15) return false;
+        if (/[^a-zA-Z0-9\-/.?=&:]/.test(m.url)) return false;
+        return true;
       });
+
+      return validMissions.map((m: any) => ({
+        ...m,
+        xpAwarded: typeof m.xpAwarded === 'number' && !isNaN(m.xpAwarded) 
+          ? Math.max(25, Math.min(50, m.xpAwarded)) 
+          : Math.floor(Math.random() * 26) + 25
+      }));
     } catch (error) {
       return [];
     }
   }
 
   async generateFollowUps(type: InterviewType, question: string, transcript: string) {
-    return this.withRetry(async () => {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-      
-      const prompt = type === InterviewType.PRODUCT_SENSE 
-        ? `
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+    
+    const prompt = type === InterviewType.PRODUCT_SENSE 
+      ? `
   You are a Staff PM conducting a bar-raiser interview panel.
   
   The candidate answered this question:
@@ -348,25 +478,29 @@ export class GeminiService {
   them or add preamble.
 `;
 
-      const response = await ai.models.generateContent({
-        model: MODEL_CONFIG.FOLLOW_UP,
-        contents: prompt,
-        config: { 
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              followUpQuestions: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
-            },
-            required: ["followUpQuestions"]
+    const response = await flashQueue.add(() =>
+      retryWithBackoff(
+        () => ai.models.generateContent({
+          model: MODEL_CONFIG.FOLLOW_UP,
+          contents: prompt,
+          config: { 
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                followUpQuestions: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                }
+              },
+              required: ["followUpQuestions"]
+            }
           }
-        }
-      });
-      return this.extractJson(response.text || "");
-    });
+        }),
+        { label: 'generateFollowUps — follow-ups' }
+      )
+    );
+    return this.extractJson(response.text || "");
   }
 
   /**
@@ -384,10 +518,12 @@ export class GeminiService {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     
   // Run extraction passes in parallel for both transcripts
-  const [initialExtraction, defenseExtraction] = await Promise.all([
-    extractTranscriptSignals(ai, initialTranscript, 'initialTranscript'),
-    extractTranscriptSignals(ai, followUpTranscript, 'followUpTranscript')
-  ]);
+  const initialExtraction = await extractTranscriptSignals(
+    ai, initialTranscript, 'initialTranscript'
+  );
+  const defenseExtraction = await extractTranscriptSignals(
+    ai, followUpTranscript, 'followUpTranscript'
+  );
 
   const initialWordCount = initialTranscript.trim()
     .split(/\s+/).length;
@@ -731,43 +867,49 @@ ${followUpTranscript}`;
     `Full transcripts passed for annotation anchoring.`
   );
 
-    return this.withRetry(async () => {
-      try {
-        // Attempt Pro Audit with lower thinking level for stability
-        const response = await ai.models.generateContent({
-          model: MODEL_CONFIG.ANALYSIS_PRIMARY,
-          contents: prompt,
-          config: { 
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            responseSchema: responseSchema
-          }
-        });
-        const data = this.extractJson(response.text || "");
-        if (data) return formatResult(data);
-      } catch (e) {
-        console.warn("[GeminiService] Pro Audit failed or timed out, falling back to Flash:", e);
-      }
+  try {
+    // Attempt Pro Audit with lower thinking level for stability
+    const response = await retryWithBackoff(
+      () => ai.models.generateContent({
+        model: MODEL_CONFIG.ANALYSIS_PRIMARY,
+        contents: prompt,
+        config: { 
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseSchema: responseSchema
+        }
+      }),
+      { label: 'analyzeFullSession — primary analysis', baseDelayMs: 5000 }
+    );
+    const data = this.extractJson(response.text || "");
+    if (data) return formatResult(data);
+  } catch (e) {
+    console.warn("[GeminiService] Pro Audit failed or timed out, falling back to Flash:", e);
+  }
 
-      // Fallback to Flash for guaranteed completion
-      const response = await ai.models.generateContent({
+  // Fallback to Flash for guaranteed completion
+  const response = await flashQueue.add(() =>
+    retryWithBackoff(
+      () => ai.models.generateContent({
         model: MODEL_CONFIG.ANALYSIS_FALLBACK,
         contents: prompt,
         config: { 
           responseMimeType: "application/json",
           responseSchema: responseSchema
         }
-      });
-      
-      const data = this.extractJson(response.text || "");
-      if (!data) {
-        console.error("[GeminiService] Flash fallback also failed to return valid JSON.");
-        throw new Error("Critical JSON failure: The audit response was incomplete or corrupted.");
-      }
-      
-      return formatResult(data);
-    });
+      }),
+      { label: 'analyzeFullSession — fallback analysis' }
+    )
+  );
+  
+  const data = this.extractJson(response.text || "");
+  if (!data) {
+    console.error("[GeminiService] Flash fallback also failed to return valid JSON.");
+    throw new Error("Critical JSON failure: The audit response was incomplete or corrupted.");
   }
+  
+  return formatResult(data);
+}
 
   async verifyDeltaPractice(delta: ImprovementItem, audioBase64: string, mimeType: string): Promise<{ success: boolean; feedback: string }> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
@@ -803,21 +945,26 @@ ${followUpTranscript}`;
 `;
 
     try {
-      const response = await ai.models.generateContent({
-        model: MODEL_CONFIG.DELTA_VERIFY,
-        contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] },
-        config: { 
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              success: { type: Type.BOOLEAN },
-              feedback: { type: Type.STRING }
-            },
-            required: ["success", "feedback"]
-          }
-        }
-      });
+      const response = await flashQueue.add(() =>
+        retryWithBackoff(
+          () => ai.models.generateContent({
+            model: MODEL_CONFIG.DELTA_VERIFY,
+            contents: { parts: [{ inlineData: { data: audioBase64, mimeType } }, { text: prompt }] },
+            config: { 
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  success: { type: Type.BOOLEAN },
+                  feedback: { type: Type.STRING }
+                },
+                required: ["success", "feedback"]
+              }
+            }
+          }),
+          { label: 'verifyDeltaPractice — verification' }
+        )
+      );
       return this.extractJson(response.text || "");
     } catch (e) {
       console.error("[GeminiService] Delta practice verification failed:", e);
