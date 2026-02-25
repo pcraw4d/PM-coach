@@ -183,9 +183,16 @@ const App: React.FC = () => {
       setHasCheckpoint(false);
     } catch (err: any) {
       console.error("[Staff Audit Error]", err);
-      const errorMessage = 
-        (err instanceof Error && err.message.includes('429'))
-          ? 'Analysis is temporarily rate limited. Please wait 30 seconds and try again. This happens when multiple analyses run in quick succession.'
+      const isQuotaExhausted = err instanceof Error && 
+        err.message.includes('QUOTA_EXHAUSTED');
+
+      const errorMessage = isQuotaExhausted
+        ? 'Daily analysis limit reached. The free API tier has ' +
+          'been exhausted for today. Analysis will be available ' +
+          'again tomorrow, or you can upgrade your API plan in ' +
+          'Google AI Studio.'
+        : (err instanceof Error && err.message.includes('429'))
+          ? 'Too many requests. Please wait 30 seconds and try again.'
           : 'Staff Audit failed. Your text is saved—you can retry from the dashboard.';
       setApiError(errorMessage);
       setPhase('config');
@@ -271,9 +278,16 @@ const App: React.FC = () => {
         setHasCheckpoint(false);
         setPhase('result');
       } catch (err: any) {
-        const errorMessage = 
-          (err instanceof Error && err.message.includes('429'))
-            ? 'Analysis is temporarily rate limited. Please wait 30 seconds and try again. This happens when multiple analyses run in quick succession.'
+        const isQuotaExhausted = err instanceof Error && 
+          err.message.includes('QUOTA_EXHAUSTED');
+
+        const errorMessage = isQuotaExhausted
+          ? 'Daily analysis limit reached. The free API tier has ' +
+            'been exhausted for today. Analysis will be available ' +
+            'again tomorrow, or you can upgrade your API plan in ' +
+            'Google AI Studio.'
+          : (err instanceof Error && err.message.includes('429'))
+            ? 'Too many requests. Please wait 30 seconds and try again.'
             : 'Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.';
         setApiError(errorMessage);
         setPhase('config');

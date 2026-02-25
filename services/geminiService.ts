@@ -125,6 +125,49 @@ class RateLimitedQueue {
 // Pro calls bypass the queue since they are infrequent.
 const flashQueue = new RateLimitedQueue(2, 500);
 
+function parseGeminiError(err: unknown): { 
+  is429: boolean;
+  isQuotaExhausted: boolean;
+  retryAfterMs: number | null;
+} {
+  const defaultResult = { 
+    is429: false, 
+    isQuotaExhausted: false, 
+    retryAfterMs: null 
+  };
+
+  if (!err || typeof err !== 'object') return defaultResult;
+
+  const message = 
+    (err as { message?: string }).message || 
+    JSON.stringify(err);
+
+  const is429 = 
+    message.includes('429') || 
+    (err as { status?: number }).status === 429;
+
+  if (!is429) return defaultResult;
+
+  // Detect fully exhausted daily quota — limit: 0 means no 
+  // requests are available and waiting will not help until 
+  // the quota resets at midnight
+  const isQuotaExhausted = message.includes('"limit": 0') || 
+    message.includes('limit: 0') ||
+    message.includes('GenerateRequestsPerDayPerProject');
+
+  // Extract retryDelay from the API error response body.
+  // Format is either "50s" or "50.497441097s"
+  let retryAfterMs: number | null = null;
+  const retryDelayMatch = message.match(/"retryDelay"\s*:\s*"([\d.]+)s"/);
+  if (retryDelayMatch) {
+    const seconds = parseFloat(retryDelayMatch[1]);
+    // Add 2 second buffer on top of the API-specified delay
+    retryAfterMs = Math.ceil(seconds * 1000) + 2000;
+  }
+
+  return { is429, isQuotaExhausted, retryAfterMs };
+}
+
 async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   options: {
@@ -149,17 +192,28 @@ async function retryWithBackoff<T>(
     } catch (err: unknown) {
       lastError = err;
 
-      const is429 = 
-        (err instanceof Error && err.message.includes('429')) ||
-        (typeof err === 'object' && err !== null && 
-         'status' in err && (err as { status: number }).status === 429);
+      const { is429, isQuotaExhausted, retryAfterMs } = 
+        parseGeminiError(err);
+
+      // Daily quota exhausted — retrying will not help.
+      // Fail immediately and surface a clear error.
+      if (isQuotaExhausted) {
+        console.error(
+          `[geminiService] ${label} — daily quota exhausted. ` +
+          `No retries attempted. Quota resets at midnight Pacific.`
+        );
+        throw new Error(
+          'QUOTA_EXHAUSTED: Daily API quota has been reached. ' +
+          'Please try again tomorrow or upgrade your Google AI ' +
+          'API plan at https://ai.dev/rate-limit'
+        );
+      }
 
       const isRetryable =
         is429 ||
         (err instanceof Error && (
           err.message.includes('500') ||
           err.message.includes('503') ||
-          err.message.includes('network') ||
           err.message.toLowerCase().includes('timeout')
         ));
 
@@ -171,19 +225,20 @@ async function retryWithBackoff<T>(
         throw err;
       }
 
-      // Exponential backoff with jitter.
-      // 429s get a longer base delay to respect rate limits.
-      const backoffBase = is429 ? baseDelayMs * 3 : baseDelayMs;
-      const delay = Math.min(
-        backoffBase * Math.pow(2, attempt) + 
-        Math.random() * 1000,
+      // Use API-specified retry delay if available.
+      // Otherwise fall back to exponential backoff.
+      const delay = retryAfterMs ?? Math.min(
+        (is429 ? baseDelayMs * 3 : baseDelayMs) * 
+          Math.pow(2, attempt) + 
+          Math.random() * 1000,
         maxDelayMs
       );
 
       console.warn(
         `[geminiService] ${label} attempt ${attempt + 1} failed ` +
         `${is429 ? '(rate limited)' : '(error)'}. ` +
-        `Retrying in ${Math.round(delay / 1000)}s...`
+        `Waiting ${Math.round(delay / 1000)}s ` +
+        `${retryAfterMs ? '(API-specified delay)' : '(backoff)'}...`
       );
 
       await new Promise(resolve => setTimeout(resolve, delay));
