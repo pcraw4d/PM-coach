@@ -9,7 +9,7 @@ const MODEL_CONFIG = {
   FOLLOW_UP: 'gemini-3-flash-preview',
   ANALYSIS_PRIMARY: 'gemini-3.1-pro-preview',
   ANALYSIS_FALLBACK: 'gemini-3-flash-preview',
-  MISSIONS: 'gemini-2.0-flash-lite-preview-02-05',
+  MISSIONS: 'gemini-flash-lite-latest',
   DELTA_VERIFY: 'gemini-3-flash-preview',
   EXTRACTION: 'gemini-3-flash-preview',
   EXTRACTION_FALLBACK: 'gemini-flash-lite-latest'
