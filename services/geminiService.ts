@@ -5,14 +5,14 @@ import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS }
 // Update model names here when Google releases new versions
 // Current models: https://ai.google.dev/gemini-api/docs/models
 const MODEL_CONFIG = {
-  TRANSCRIPTION: 'gemini-2.0-flash',
-  FOLLOW_UP: 'gemini-2.0-flash',
-  ANALYSIS_PRIMARY: 'gemini-2.5-pro',
-  ANALYSIS_FALLBACK: 'gemini-2.0-flash',
-  MISSIONS: 'gemini-2.0-flash',
-  DELTA_VERIFY: 'gemini-2.0-flash',
-  EXTRACTION: 'gemini-2.0-flash',
-  EXTRACTION_FALLBACK: 'gemini-2.0-flash-lite'
+  TRANSCRIPTION: 'gemini-2.0-flash-exp',
+  FOLLOW_UP: 'gemini-2.0-flash-exp',
+  ANALYSIS_PRIMARY: 'gemini-2.0-pro-exp-02-05',
+  ANALYSIS_FALLBACK: 'gemini-2.0-flash-exp',
+  MISSIONS: 'gemini-2.0-flash-exp',
+  DELTA_VERIFY: 'gemini-2.0-flash-exp',
+  EXTRACTION: 'gemini-2.0-flash-exp',
+  EXTRACTION_FALLBACK: 'gemini-2.0-flash-lite-preview-02-05'
 } as const;
 
 interface TranscriptExtraction {
@@ -128,11 +128,13 @@ const flashQueue = new RateLimitedQueue(2, 500);
 function parseGeminiError(err: unknown): { 
   is429: boolean;
   isQuotaExhausted: boolean;
+  isModelDeprecated: boolean;
   retryAfterMs: number | null;
 } {
   const defaultResult = { 
     is429: false, 
     isQuotaExhausted: false, 
+    isModelDeprecated: false,
     retryAfterMs: null 
   };
 
@@ -141,12 +143,19 @@ function parseGeminiError(err: unknown): {
   const message = 
     (err as { message?: string }).message || 
     JSON.stringify(err);
+  
+  const status = (err as { status?: number }).status;
 
   const is429 = 
     message.includes('429') || 
-    (err as { status?: number }).status === 429;
+    status === 429;
+    
+  // Detect model deprecation (404 Not Found for model resource)
+  const isModelDeprecated = 
+    (status === 404 || message.includes('404')) && 
+    (message.includes('model') || message.includes('no longer available') || message.includes('not found'));
 
-  if (!is429) return defaultResult;
+  if (!is429 && !isModelDeprecated) return defaultResult;
 
   // Detect fully exhausted daily quota — limit: 0 means no 
   // requests are available and waiting will not help until 
@@ -165,7 +174,7 @@ function parseGeminiError(err: unknown): {
     retryAfterMs = Math.ceil(seconds * 1000) + 2000;
   }
 
-  return { is429, isQuotaExhausted, retryAfterMs };
+  return { is429, isQuotaExhausted, isModelDeprecated, retryAfterMs };
 }
 
 async function retryWithBackoff<T>(
@@ -192,8 +201,19 @@ async function retryWithBackoff<T>(
     } catch (err: unknown) {
       lastError = err;
 
-      const { is429, isQuotaExhausted, retryAfterMs } = 
+      const { is429, isQuotaExhausted, isModelDeprecated, retryAfterMs } = 
         parseGeminiError(err);
+
+      // Model deprecation — retrying will not help.
+      if (isModelDeprecated) {
+        console.error(
+          `[geminiService] ${label} — model deprecated or not found.`
+        );
+        throw new Error(
+          'MODEL_DEPRECATED: The configured AI model is no longer available. ' +
+          'Please contact the developer to update the model version.'
+        );
+      }
 
       // Daily quota exhausted — retrying will not help.
       // Fail immediately and surface a clear error.

@@ -185,15 +185,19 @@ const App: React.FC = () => {
       console.error("[Staff Audit Error]", err);
       const isQuotaExhausted = err instanceof Error && 
         err.message.includes('QUOTA_EXHAUSTED');
+      const isModelDeprecated = err instanceof Error && 
+        err.message.includes('MODEL_DEPRECATED');
 
-      const errorMessage = isQuotaExhausted
-        ? 'Daily analysis limit reached. The free API tier has ' +
-          'been exhausted for today. Analysis will be available ' +
-          'again tomorrow, or you can upgrade your API plan in ' +
-          'Google AI Studio.'
-        : (err instanceof Error && err.message.includes('429'))
-          ? 'Too many requests. Please wait 30 seconds and try again.'
-          : 'Staff Audit failed. Your text is saved—you can retry from the dashboard.';
+      const errorMessage = isModelDeprecated
+        ? 'System Error: The configured AI model is no longer supported. Please contact the developer to update the model version.'
+        : isQuotaExhausted
+          ? 'Daily analysis limit reached. The free API tier has ' +
+            'been exhausted for today. Analysis will be available ' +
+            'again tomorrow, or you can upgrade your API plan in ' +
+            'Google AI Studio.'
+          : (err instanceof Error && err.message.includes('429'))
+            ? 'Too many requests. Please wait 30 seconds and try again.'
+            : 'Staff Audit failed. Your text is saved—you can retry from the dashboard.';
       setApiError(errorMessage);
       setPhase('config');
     } finally {
@@ -228,8 +232,15 @@ const App: React.FC = () => {
         sessionStorage.setItem('last_checkpoint_time', Date.now().toString());
         setHasCheckpoint(true);
         setPhase('grilling');
-      } catch (err) {
-        setApiError("Pass 1 failed. For long recordings, ensure stable high-speed internet.");
+      } catch (err: any) {
+        const isModelDeprecated = err instanceof Error && 
+          err.message.includes('MODEL_DEPRECATED');
+        
+        const errorMessage = isModelDeprecated
+          ? 'System Error: The configured AI model is no longer supported. Please contact the developer to update the model version.'
+          : "Pass 1 failed. For long recordings, ensure stable high-speed internet.";
+          
+        setApiError(errorMessage);
         setPhase('config');
       } finally {
         setIsProcessing(false);
@@ -280,15 +291,19 @@ const App: React.FC = () => {
       } catch (err: any) {
         const isQuotaExhausted = err instanceof Error && 
           err.message.includes('QUOTA_EXHAUSTED');
+        const isModelDeprecated = err instanceof Error && 
+          err.message.includes('MODEL_DEPRECATED');
 
-        const errorMessage = isQuotaExhausted
-          ? 'Daily analysis limit reached. The free API tier has ' +
-            'been exhausted for today. Analysis will be available ' +
-            'again tomorrow, or you can upgrade your API plan in ' +
-            'Google AI Studio.'
-          : (err instanceof Error && err.message.includes('429'))
-            ? 'Too many requests. Please wait 30 seconds and try again.'
-            : 'Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.';
+        const errorMessage = isModelDeprecated
+          ? 'System Error: The configured AI model is no longer supported. Please contact the developer to update the model version.'
+          : isQuotaExhausted
+            ? 'Daily analysis limit reached. The free API tier has ' +
+              'been exhausted for today. Analysis will be available ' +
+              'again tomorrow, or you can upgrade your API plan in ' +
+              'Google AI Studio.'
+            : (err instanceof Error && err.message.includes('429'))
+              ? 'Too many requests. Please wait 30 seconds and try again.'
+              : 'Pass 2 failed. Your text is saved—retry the Staff Audit from the dashboard.';
         setApiError(errorMessage);
         setPhase('config');
       } finally {
