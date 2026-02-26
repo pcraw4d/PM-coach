@@ -261,9 +261,20 @@ export const Recorder: React.FC<RecorderProps> = ({
       {prompt && (
         <div className="w-full px-8 py-10 bg-white border border-slate-200 rounded-[3rem] shadow-sm">
           <h3 className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.3em] mb-4 text-center">Reference Prompt</h3>
-          <p className="text-2xl font-black text-slate-800 text-center leading-tight">
-            {Array.isArray(prompt) ? prompt[0] : prompt}
-          </p>
+          {Array.isArray(prompt) ? (
+            <div className="space-y-4 text-left max-w-3xl mx-auto">
+              {prompt.map((p, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <span className="text-indigo-500 font-black text-xl mt-0.5">•</span>
+                  <p className="text-xl font-black text-slate-800 leading-tight">{p}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-2xl font-black text-slate-800 text-center leading-tight">
+              {prompt}
+            </p>
+          )}
         </div>
       )}
 

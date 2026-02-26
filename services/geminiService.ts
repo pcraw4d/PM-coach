@@ -434,9 +434,11 @@ export class GeminiService {
   async discoverMissions(): Promise<KnowledgeMission[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     const prompt = `
-  Search the web right now for high-quality Product Management learning content.
+  Search the web for the highest-quality, most definitive Product Management learning content available.
+  
+  Focus on "Timeless", "Seminal", and "High-Signal" content. Do not prioritize recent news; prioritize quality and authority.
 
-  Priority 1: Content published in the last 30 days from these primary sources:
+  Primary Sources (but not limited to):
   - Lenny's Newsletter (lennysnewsletter.com)
   - SVPG (svpg.com)
   - Reforge (reforge.com)
@@ -448,14 +450,14 @@ export class GeminiService {
   - Department of Product (departmentofproduct.com)
   - Andrew Chen (andrewchen.com)
 
-  Priority 2 (Fallback): If fewer than 4 recent items are found, include "Evergreen Classics" or "Trending Discussions" from these authors, regardless of date.
-
-  For each result you find:
-  1. Confirm the URL exists and is accessible before including it
-  2. Use the exact URL from your search result — do not construct or guess URLs
-  3. Ensure the content is high-signal for PM practitioners
+  CRITICAL URL RULES:
+  1. You MUST use the EXACT URL returned by the Google Search tool.
+  2. Do NOT construct, guess, or predict URLs based on titles.
+  3. If you cannot find a verified, accessible URL for a resource, DO NOT include it.
+  4. 404 errors are unacceptable. Verify the URL exists in your search results.
 
   Return a JSON array of exactly 4 objects.
+  CRITICAL: Return ONLY the JSON array. Do not include any conversational text, markdown formatting, or explanations.
 
   Each object must have:
   - id: lowercase-hyphenated slug max 40 chars, e.g. "lennys-metrics-framework"
@@ -473,18 +475,46 @@ export class GeminiService {
           () => ai.models.generateContent({
             model: MODEL_CONFIG.MISSIONS,
             contents: prompt,
-            config: { tools: [{ googleSearch: {} }], temperature: 0.1 }
+            config: { 
+              tools: [{ googleSearch: {} }], 
+              temperature: 0.1
+            }
           }),
           { label: 'discoverMissions — search' }
         )
       );
+      
       const missions = this.extractJson(response.text || "") || [];
       
+      // Extract grounded URLs from metadata to validate
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const groundedUrls = new Set<string>();
+      
+      groundingChunks.forEach((chunk: any) => {
+        if (chunk.web?.uri) {
+          groundedUrls.add(chunk.web.uri);
+        }
+      });
+
       const validMissions = missions.filter((m: any) => {
         if (!m.url || typeof m.url !== 'string') return false;
         if (!m.url.startsWith('https://')) return false;
         if (m.url.length < 15) return false;
         if (/[^a-zA-Z0-9\-/.?=&:]/.test(m.url)) return false;
+        
+        // Strict Validation: The URL must be present in the grounding metadata
+        // or at least be a substring of a grounded URL (to handle query params/fragments)
+        // If no grounding metadata is returned (rare but possible), we fall back to basic validation
+        if (groundedUrls.size > 0) {
+           const isGrounded = Array.from(groundedUrls).some(gUrl => 
+             gUrl.includes(m.url) || m.url.includes(gUrl)
+           );
+           if (!isGrounded) {
+             console.warn(`[GeminiService] Filtered ungrounded URL: ${m.url}`);
+             return false;
+           }
+        }
+
         return true;
       });
 
