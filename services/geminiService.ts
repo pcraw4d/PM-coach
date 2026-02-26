@@ -9,7 +9,7 @@ const MODEL_CONFIG = {
   FOLLOW_UP: 'gemini-3-flash-preview',
   ANALYSIS_PRIMARY: 'gemini-3.1-pro-preview',
   ANALYSIS_FALLBACK: 'gemini-3-flash-preview',
-  MISSIONS: 'gemini-3-flash-preview',
+  MISSIONS: 'gemini-2.0-flash-lite-preview-02-05',
   DELTA_VERIFY: 'gemini-3-flash-preview',
   EXTRACTION: 'gemini-3-flash-preview',
   EXTRACTION_FALLBACK: 'gemini-flash-lite-latest'
@@ -127,12 +127,14 @@ const flashQueue = new RateLimitedQueue(2, 500);
 
 function parseGeminiError(err: unknown): { 
   is429: boolean;
+  is503: boolean;
   isQuotaExhausted: boolean;
   isModelDeprecated: boolean;
   retryAfterMs: number | null;
 } {
   const defaultResult = { 
     is429: false, 
+    is503: false,
     isQuotaExhausted: false, 
     isModelDeprecated: false,
     retryAfterMs: null 
@@ -149,13 +151,17 @@ function parseGeminiError(err: unknown): {
   const is429 = 
     message.includes('429') || 
     status === 429;
+
+  const is503 = 
+    message.includes('503') || 
+    status === 503;
     
   // Detect model deprecation (404 Not Found for model resource)
   const isModelDeprecated = 
     (status === 404 || message.includes('404')) && 
     (message.includes('model') || message.includes('no longer available') || message.includes('not found'));
 
-  if (!is429 && !isModelDeprecated) return defaultResult;
+  if (!is429 && !is503 && !isModelDeprecated) return defaultResult;
 
   // Detect fully exhausted daily quota — limit: 0 means no 
   // requests are available and waiting will not help until 
@@ -174,7 +180,7 @@ function parseGeminiError(err: unknown): {
     retryAfterMs = Math.ceil(seconds * 1000) + 2000;
   }
 
-  return { is429, isQuotaExhausted, isModelDeprecated, retryAfterMs };
+  return { is429, is503, isQuotaExhausted, isModelDeprecated, retryAfterMs };
 }
 
 async function retryWithBackoff<T>(
@@ -201,7 +207,7 @@ async function retryWithBackoff<T>(
     } catch (err: unknown) {
       lastError = err;
 
-      const { is429, isQuotaExhausted, isModelDeprecated, retryAfterMs } = 
+      const { is429, is503, isQuotaExhausted, isModelDeprecated, retryAfterMs } = 
         parseGeminiError(err);
 
       // Model deprecation — retrying will not help.
@@ -231,6 +237,7 @@ async function retryWithBackoff<T>(
 
       const isRetryable =
         is429 ||
+        is503 ||
         (err instanceof Error && (
           err.message.includes('500') ||
           err.message.includes('503') ||
@@ -256,7 +263,7 @@ async function retryWithBackoff<T>(
 
       console.warn(
         `[geminiService] ${label} attempt ${attempt + 1} failed ` +
-        `${is429 ? '(rate limited)' : '(error)'}. ` +
+        `${is429 ? '(rate limited)' : is503 ? '(service unavailable)' : '(error)'}. ` +
         `Waiting ${Math.round(delay / 1000)}s ` +
         `${retryAfterMs ? '(API-specified delay)' : '(backoff)'}...`
       );
