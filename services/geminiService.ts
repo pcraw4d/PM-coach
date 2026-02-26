@@ -5,13 +5,13 @@ import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS }
 // Update model names here when Google releases new versions
 // Current models: https://ai.google.dev/gemini-api/docs/models
 const MODEL_CONFIG = {
-  TRANSCRIPTION: 'gemini-2.0-flash-exp',
-  FOLLOW_UP: 'gemini-2.0-flash-exp',
+  TRANSCRIPTION: 'gemini-2.0-flash',
+  FOLLOW_UP: 'gemini-2.0-flash',
   ANALYSIS_PRIMARY: 'gemini-2.0-pro-exp-02-05',
-  ANALYSIS_FALLBACK: 'gemini-2.0-flash-exp',
-  MISSIONS: 'gemini-2.0-flash-exp',
-  DELTA_VERIFY: 'gemini-2.0-flash-exp',
-  EXTRACTION: 'gemini-2.0-flash-exp',
+  ANALYSIS_FALLBACK: 'gemini-2.0-flash',
+  MISSIONS: 'gemini-2.0-flash',
+  DELTA_VERIFY: 'gemini-2.0-flash',
+  EXTRACTION: 'gemini-2.0-flash',
   EXTRACTION_FALLBACK: 'gemini-2.0-flash-lite-preview-02-05'
 } as const;
 
