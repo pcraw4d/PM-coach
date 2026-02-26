@@ -434,38 +434,37 @@ export class GeminiService {
   async discoverMissions(): Promise<KnowledgeMission[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     const prompt = `
-  Search the web right now for PM learning content published 
-  in the last 30 days.
-  
-  Only return results from these sources:
+  Search the web right now for high-quality Product Management learning content.
+
+  Priority 1: Content published in the last 30 days from these primary sources:
   - Lenny's Newsletter (lennysnewsletter.com)
   - SVPG (svpg.com)
   - Reforge (reforge.com)
   - First Round Review (review.firstround.com)
-  - Shreyas Doshi's Substack (shreyasdoshi.substack.com)
-  
+  - Shreyas Doshi (Substack, LinkedIn, Twitter)
+  - Mind the Product (mindtheproduct.com)
+  - Product Coalition (productcoalition.com)
+  - Bring the Donuts (ken-norton.com)
+  - Department of Product (departmentofproduct.com)
+  - Andrew Chen (andrewchen.com)
+
+  Priority 2 (Fallback): If fewer than 4 recent items are found, include "Evergreen Classics" or "Trending Discussions" from these authors, regardless of date.
+
   For each result you find:
   1. Confirm the URL exists and is accessible before including it
-  2. Use the exact URL from your search result — do not construct 
-     or guess URLs
-  3. Only include results with a clear publication date in the 
-     last 30 days
-  
-  Return a JSON array of exactly 4 objects. If fewer than 4 
-  verified results exist, return however many you found — do 
-  not pad with unverified results.
-  
+  2. Use the exact URL from your search result — do not construct or guess URLs
+  3. Ensure the content is high-signal for PM practitioners
+
+  Return a JSON array of exactly 4 objects.
+
   Each object must have:
-  - id: lowercase-hyphenated slug max 40 chars, e.g. 
-    "lennys-metrics-framework-jan-2024"
+  - id: lowercase-hyphenated slug max 40 chars, e.g. "lennys-metrics-framework"
   - title: exact article or episode title
   - source: publication name as it appears on the site
   - url: the exact verified URL from your search
   - type: exactly one of "article", "video", or "podcast"
-  - summary: 2-3 sentences describing the core PM insight 
-    a practitioner would take away
-  - xpAwarded: integer between 25 and 50. Use 50 for 
-    long-form strategic pieces, 25 for shorter reads
+  - summary: 2-3 sentences describing the core PM insight a practitioner would take away
+  - xpAwarded: integer between 25 and 50. Use 50 for long-form strategic pieces, 25 for shorter reads
 `;
     
     try {
