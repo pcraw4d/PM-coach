@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, GenerateContentResponse, ThinkingLevel } from "@google/genai";
 import { InterviewType, InterviewResult, KnowledgeMission, ImprovementItem, AggregatedWeaknessProfile } from "../types.ts";
+import { computeSessionScore } from '../utils/scoringEngine';
 import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS, getSearchQueriesForWeaknesses } from '../constants.tsx';
 
 // Update model names here when Google releases new versions
@@ -1013,15 +1014,9 @@ ${followUpTranscript}`;
       const rubricScores = data.rubricScores || [];
       const comms = data.communicationAnalysis || { clarityScore: 0, structureScore: 0, specificityScore: 0, executiveFramingScore: 0 };
       
-      // Calculate scores mathematically
-      const avgRubric = rubricScores.length > 0 
-        ? rubricScores.reduce((sum: number, r: any) => sum + r.score, 0) / rubricScores.length 
-        : 0;
-      
-      const avgComms = (comms.clarityScore + (comms.structureScore || 0) + (comms.specificityScore || 0) + (comms.executiveFramingScore || 0)) / 4;
-      
-      // Overall score: 80% rubric, 20% communication
-      const overallScore = Math.round((avgRubric * 0.8) + (avgComms * 0.2));
+      // Use the new scoring engine
+      const scoreBreakdown = computeSessionScore(rubricScores, comms, type);
+      const overallScore = scoreBreakdown.overallScore;
       
       // Vision score: average of all but the last rubric category
       const visionRubrics = rubricScores.slice(0, Math.max(1, rubricScores.length - 1));
@@ -1039,6 +1034,7 @@ ${followUpTranscript}`;
         visionScore,
         defenseScore,
         defensivePivotScore,
+        scoreBreakdown,
         transcription: initialTranscript,
         followUpQuestions,
         followUpTranscription: followUpTranscript,
