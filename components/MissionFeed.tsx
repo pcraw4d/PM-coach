@@ -77,7 +77,15 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
             >
               <div className="space-y-3">
                 <div className="flex justify-between items-start">
-                  <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md">{mission.source}</p>
+                  <div className="flex flex-col items-start gap-1.5">
+                    <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md">{mission.source}</p>
+                    {mission.targetedSkill && (
+                      <span className="text-[8px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100 flex items-center gap-1">
+                        <span className="w-1 h-1 rounded-full bg-rose-500 animate-pulse"></span>
+                        {mission.targetedSkill}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[9px] font-black text-slate-400">+{displayXP} XP</span>
                 </div>
                 <h4 className="text-lg font-black text-slate-900 leading-snug">{mission.title}</h4>

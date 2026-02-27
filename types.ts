@@ -82,6 +82,7 @@ export interface GoldenPathStep {
   content: string;
   why: string;
   strategicTradeOffs: string; // Added: Explains why alternatives were rejected
+  scriptExample: string; // Added: A natural spoken example of what a Staff PM would say
 }
 
 export interface UserLogicStep {
@@ -91,6 +92,9 @@ export interface UserLogicStep {
 }
 
 export interface InterviewResult {
+  id?: string; // Optional ID for reference
+  question: string; // The question asked
+  xpAwarded: number; // XP earned for this session
   overallScore: number;
   visionScore: number; 
   defenseScore: number; 
@@ -124,6 +128,8 @@ export interface HistoryItem {
   result?: InterviewResult;
   title?: string;
   xpAwarded?: number;
+  url?: string;
+  targetedSkill?: string;
 }
 
 export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input' | 'practice-delta';

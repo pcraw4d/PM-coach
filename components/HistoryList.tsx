@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { HistoryItem, InterviewType } from '../types.ts';
+import { HistoryItem, InterviewType, AggregatedWeaknessProfile, WeaknessPattern } from '../types.ts';
+import { computeWeaknessProfile } from '../utils/weaknessAggregator.ts';
+import { TrendingUp, TrendingDown, Minus, AlertCircle } from 'lucide-react';
 import { 
   AreaChart, 
   Area, 
@@ -19,6 +21,123 @@ interface HistoryListProps {
   onSelect: (interview: any) => void;
   onClear: () => void;
 }
+
+const WeaknessIntelligencePanel: React.FC<{ history: HistoryItem[] }> = ({ history }) => {
+  const profile = useMemo(() => computeWeaknessProfile(history), [history]);
+  const hasEnoughData = profile.topWeaknesses.length >= 2;
+
+  if (!hasEnoughData) {
+    return (
+      <div className="bg-gradient-to-br from-indigo-50 to-white p-8 rounded-[3rem] border border-indigo-100 shadow-sm text-center space-y-4">
+        <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto text-2xl">🌱</div>
+        <div>
+          <h3 className="text-xl font-black text-indigo-900 mb-1">Pattern Recognition Active</h3>
+          <p className="text-indigo-600/80 font-medium text-sm max-w-md mx-auto">
+            Complete at least 2 interview sessions to unlock AI-driven weakness analysis and trend tracking.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const topWeakness = profile.topWeaknesses[0];
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* Primary Focus Area */}
+      <div className="lg:col-span-2 bg-slate-900 p-10 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+        
+        <div className="relative z-10 space-y-6">
+          <div className="flex items-center space-x-3">
+            <div className="bg-rose-500/20 text-rose-400 p-2 rounded-xl">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <span className="text-xs font-black text-rose-400 uppercase tracking-widest">Critical Focus Area</span>
+          </div>
+
+          <div>
+            <h3 className="text-3xl font-black mb-2 tracking-tight">{topWeakness.category}</h3>
+            <p className="text-slate-400 font-medium leading-relaxed max-w-xl">
+              This area has flagged in <span className="text-white font-bold">{topWeakness.sessionCount} sessions</span> with an average score of <span className="text-white font-bold">{topWeakness.averageScore}</span>. 
+              {topWeakness.trend === 'regressing' && " Performance is trending downward."}
+              {topWeakness.trend === 'plateauing' && " Progress has stalled here."}
+              {topWeakness.trend === 'improving' && " You are showing signs of improvement."}
+            </p>
+          </div>
+
+          {topWeakness.recurringActions.length > 0 && (
+            <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Recurring Feedback Patterns</p>
+              <div className="space-y-3">
+                {topWeakness.recurringActions.map((action, i) => (
+                  <div key={i} className="flex items-start space-x-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-2 shrink-0"></div>
+                    <p className="text-sm font-medium text-slate-300">{action}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Trend Cards */}
+      <div className="space-y-4">
+        {profile.topWeaknesses.slice(0, 3).map((weakness, i) => (
+          <div key={i} className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center justify-between group hover:border-indigo-100 transition-all">
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                {weakness.category.length > 20 ? weakness.category.substring(0, 20) + '...' : weakness.category}
+              </p>
+              <h4 className="text-lg font-black text-slate-900">{weakness.averageScore} <span className="text-[10px] text-slate-400 font-bold">AVG</span></h4>
+            </div>
+            
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+              weakness.trend === 'improving' ? 'bg-emerald-50 text-emerald-600' :
+              weakness.trend === 'regressing' ? 'bg-rose-50 text-rose-600' :
+              'bg-slate-50 text-slate-400'
+            }`}>
+              {weakness.trend === 'improving' && <TrendingUp className="w-5 h-5" />}
+              {weakness.trend === 'regressing' && <TrendingDown className="w-5 h-5" />}
+              {weakness.trend === 'plateauing' && <Minus className="w-5 h-5" />}
+            </div>
+          </div>
+        ))}
+        
+        {profile.topWeaknesses.length < 3 && (
+           <div className="bg-slate-50 p-6 rounded-[2.5rem] border border-dashed border-slate-200 h-full flex items-center justify-center text-center">
+              <p className="text-xs font-bold text-slate-400">More data needed for full trend analysis</p>
+           </div>
+        )}
+
+        {/* Prescribed Reading Section */}
+        {history.some(h => h.activityType === 'MISSION' && h.targetedSkill) && (
+          <div className="bg-indigo-50 p-6 rounded-[2.5rem] border border-indigo-100">
+            <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Prescribed Reading</h4>
+            <div className="space-y-3">
+              {history
+                .filter(h => h.activityType === 'MISSION' && h.targetedSkill)
+                .slice(0, 3)
+                .map((mission, i) => (
+                  <a key={i} href={mission.url} target="_blank" rel="noopener noreferrer" className="block bg-white p-4 rounded-2xl border border-indigo-100 hover:border-indigo-300 transition-all group">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="bg-indigo-100 text-indigo-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tight">
+                        {mission.targetedSkill}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900 line-clamp-2 group-hover:text-indigo-600 transition-colors">
+                      {mission.title}
+                    </p>
+                  </a>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -232,6 +351,8 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
            </div>
         </div>
       )}
+
+      <WeaknessIntelligencePanel history={history} />
 
       <div className="space-y-6">
         <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Activity Feed</h3>

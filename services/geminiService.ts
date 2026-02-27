@@ -363,8 +363,31 @@ export class GeminiService {
 
   private extractJson(text: string): any {
     if (!text) return null;
+
+    // Strategy 1: Look for markdown code blocks.
+    // We prefer the last block as it's likely the final answer (e.g. after reasoning).
+    const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
+    const matches = [...text.matchAll(codeBlockRegex)];
+    
+    if (matches.length > 0) {
+      // Try from the last block backwards
+      for (let i = matches.length - 1; i >= 0; i--) {
+        try {
+          const content = matches[i][1].trim();
+          // Basic sanitization for trailing commas
+          const sanitized = content.replace(/,\s*([\]}])/g, '$1');
+          return JSON.parse(sanitized);
+        } catch (e) {
+          // Continue to next block if this one fails
+          continue;
+        }
+      }
+    }
+
+    // Strategy 2: Fallback to finding the outermost JSON structure
     try {
       let cleaned = text.trim();
+      // Remove code fences if they exist but weren't caught by regex (unlikely but safe)
       cleaned = cleaned.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
       
       const firstArray = cleaned.indexOf('[');
@@ -385,8 +408,10 @@ export class GeminiService {
         return null;
       }
 
+      // If we found a start but the end is weird or missing
       if (endIdx === -1 || endIdx <= startIdx) {
         let fragment = cleaned.substring(startIdx);
+        // Attempt to close open structures (heuristic)
         const openBraces = (fragment.match(/{/g) || []).length;
         const closeBraces = (fragment.match(/}/g) || []).length;
         const openBrackets = (fragment.match(/\[/g) || []).length;
@@ -781,6 +806,11 @@ ${followUpTranscript}`;
       LOGIC MAPPING INSTRUCTIONS:
       - userLogicPath: Break down the user's response into a sequence of logical steps. For each step, determine if it aligns with the Staff Golden Path (isAligned). If it does NOT align, provide a specific 'staffPivot' explaining the tactical correction for that specific line.
       - goldenPath: Return the GOLDEN PATH REFERENCE provided above exactly as-is. Do not generate a new path. Copy it verbatim.
+      - scriptExample: For each step in the goldenPath, generate a 3-5 sentence script showing EXACTLY what a Staff PM would say at that specific moment in the interview.
+        - Use the exact question context (company, product, scenario)
+        - Sound like natural spoken interview language, not written prose
+        - End with a transition phrase that sets up the next step
+        - Be specific enough that the user could repeat it in a real interview with minimal adaptation
 
       COMMUNICATION ANALYSIS INSTRUCTIONS:
       Evaluate the written transcript only. Do not infer vocal qualities.
@@ -952,9 +982,10 @@ ${followUpTranscript}`;
               title: { type: Type.STRING },
               content: { type: Type.STRING },
               why: { type: Type.STRING },
-              strategicTradeOffs: { type: Type.STRING }
+              strategicTradeOffs: { type: Type.STRING },
+              scriptExample: { type: Type.STRING }
             },
-            required: ["title", "content", "why", "strategicTradeOffs"]
+            required: ["title", "content", "why", "strategicTradeOffs", "scriptExample"]
           }
         },
         recommendedResources: {
@@ -1132,6 +1163,67 @@ ${followUpTranscript}`;
     } catch (e) {
       console.error("[GeminiService] Delta practice verification failed:", e);
       return { success: false, feedback: "Verification timed out." };
+    }
+  }
+  async generateGoldenPathScripts(
+    type: InterviewType,
+    question: string,
+    goldenPath: any[]
+  ): Promise<string[]> {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+    
+    const prompt = `
+      You are a Staff PM interview coach.
+      
+      Context:
+      Interview Type: ${type}
+      Question: "${question}"
+      
+      I have a Golden Path (ideal structure) for this answer.
+      For each step in the path, write a 3-5 sentence "Script Example" showing EXACTLY what a Staff PM would say at that specific moment.
+      
+      Golden Path Steps:
+      ${goldenPath.map((step, i) => `${i+1}. ${step.title}: ${step.content}`).join('\n')}
+      
+      Requirements:
+      - Use the exact question context (company, product, scenario)
+      - Sound like natural spoken interview language, not written prose
+      - End with a transition phrase that sets up the next step
+      - Be specific enough that the user could repeat it in a real interview with minimal adaptation
+      
+      Return a JSON object with a single field "scripts" which is an array of strings.
+      The array must have exactly ${goldenPath.length} strings, corresponding to the steps in order.
+    `;
+
+    try {
+      const response = await flashQueue.add(() =>
+        retryWithBackoff(
+          () => ai.models.generateContent({
+            model: MODEL_CONFIG.ANALYSIS_FALLBACK, // Use Flash for speed/cost
+            contents: prompt,
+            config: { 
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  scripts: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                  }
+                },
+                required: ["scripts"]
+              }
+            }
+          }),
+          { label: 'generateGoldenPathScripts' }
+        )
+      );
+      
+      const data = this.extractJson(response.text || "");
+      return data?.scripts || [];
+    } catch (e) {
+      console.error("[GeminiService] Failed to generate scripts:", e);
+      return [];
     }
   }
 }

@@ -9,10 +9,12 @@ import { CustomQuestionInput } from './components/CustomQuestionInput.tsx';
 import { AccessGate } from './components/AccessGate.tsx';
 import { MissionFeed } from './components/MissionFeed.tsx';
 import { DashboardProgress } from './components/DashboardProgress.tsx';
+import { PreSessionBriefing } from './components/PreSessionBriefing.tsx';
 import { InterviewType, Question, InterviewPhase, InterviewResult, HistoryItem, User, KnowledgeMission, ImprovementItem } from './types.ts';
-import { QUESTIONS } from './constants.tsx';
+import { QUESTIONS, RUBRICS } from './constants.tsx';
 import { geminiService } from './services/geminiService.ts';
 import { supabaseService } from './services/supabaseService.ts';
+import { computeWeaknessProfile } from './utils/weaknessAggregator.ts';
 
 type LoadingStage = 'UPLOADING_AUDIO' | 'TRANSCRIBING' | 'GENERATING_FOLLOWUPS' | 'GENERATING_LOGIC' | 'FINALIZING_AUDIT' | 'SEARCHING_RESOURCES';
 
@@ -35,6 +37,15 @@ const App: React.FC = () => {
   const [apiError, setApiError] = useState<string | null>(null);
   const [missingKeyError, setMissingKeyError] = useState<boolean>(false);
   const [hasCheckpoint, setHasCheckpoint] = useState<boolean>(false);
+
+  const profile = React.useMemo(() => computeWeaknessProfile(history), [history]);
+  const recommendedType = React.useMemo(() => {
+    if (profile.topWeaknesses.length === 0) return null;
+    const topCategory = profile.topWeaknesses[0].category;
+    if (RUBRICS[InterviewType.PRODUCT_SENSE].includes(topCategory)) return InterviewType.PRODUCT_SENSE;
+    if (RUBRICS[InterviewType.ANALYTICAL_THINKING].includes(topCategory)) return InterviewType.ANALYTICAL_THINKING;
+    return null;
+  }, [profile]);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('pm_app_access_token');
@@ -433,11 +444,22 @@ const App: React.FC = () => {
               </div>
             )}
             <h1 className="text-5xl font-black tracking-tighter">Scale up, <span className="text-indigo-600">Product.</span></h1>
+            
+            <PreSessionBriefing history={history} />
+
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 items-start">
               <div className="lg:col-span-2 space-y-6">
                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Interview Practice</h3>
                  <div className="flex flex-col gap-8">
-                    <button onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} className="relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]">
+                    <button 
+                      onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} 
+                      className={`relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 min-h-[340px] transition-all ${recommendedType === InterviewType.PRODUCT_SENSE ? 'border-indigo-300 ring-4 ring-indigo-500/20' : 'border-white/10'}`}
+                    >
+                       {recommendedType === InterviewType.PRODUCT_SENSE && (
+                         <div className="absolute top-6 right-6 bg-white/20 backdrop-blur-md text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/20">
+                           Recommended
+                         </div>
+                       )}
                        <div className="relative z-10 flex flex-col h-full text-white">
                           <h3 className="text-4xl font-black mb-2 tracking-tighter">ProductSense</h3>
                           <p className="text-indigo-100 font-bold text-sm leading-relaxed mb-8">Master visionary empathy and user-centric design.</p>
@@ -447,7 +469,15 @@ const App: React.FC = () => {
                           </div>
                        </div>
                     </button>
-                    <button onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} className="relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 border-white/10 min-h-[340px]">
+                    <button 
+                      onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} 
+                      className={`relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 min-h-[340px] transition-all ${recommendedType === InterviewType.ANALYTICAL_THINKING ? 'border-emerald-300 ring-4 ring-emerald-500/20' : 'border-white/10'}`}
+                    >
+                       {recommendedType === InterviewType.ANALYTICAL_THINKING && (
+                         <div className="absolute top-6 right-6 bg-white/20 backdrop-blur-md text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/20">
+                           Recommended
+                         </div>
+                       )}
                        <div className="relative z-10 flex flex-col h-full text-white">
                           <h3 className="text-4xl font-black mb-2 tracking-tighter">AnalyticalThinking</h3>
                           <p className="text-emerald-50 font-bold text-sm leading-relaxed mb-8">Execute root cause analysis and metric trade-offs.</p>

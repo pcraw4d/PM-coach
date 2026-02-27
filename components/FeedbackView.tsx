@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep, UserLogicStep } from '../types.ts';
+import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep, UserLogicStep, InterviewType } from '../types.ts';
 import { RUBRIC_DEFINITIONS } from '../constants.tsx';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -26,6 +26,7 @@ interface FeedbackViewProps {
   onReset: () => void;
   onPracticeDelta: (item: ImprovementItem) => void;
   isProductSense: boolean;
+  question?: string; // Added: Fallback question context for legacy data
 }
 
 const ImpactBadge: React.FC<{ level: string }> = ({ level }) => {
@@ -790,11 +791,89 @@ const RubricDetailModal: React.FC<{
   );
 };
 
-export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onPracticeDelta, isProductSense }) => {
+export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onPracticeDelta, isProductSense, question }) => {
   const [showBenchmarkScript, setShowBenchmarkScript] = useState(false);
   const [expandedRubric, setExpandedRubric] = useState<number | null>(null);
   const [selectedRubricIndex, setSelectedRubricIndex] = useState<number | null>(null);
   const lastValidRubricIndex = React.useRef<number | null>(null);
+
+  // Lazy Script Generation State
+  const [generatingScripts, setGeneratingScripts] = useState(false);
+  const [generatedScripts, setGeneratedScripts] = useState<Record<number, string>>({});
+
+  const handleGenerateScripts = async () => {
+    if (generatingScripts || !result.goldenPath) return;
+    
+    // Determine the question context:
+    // 1. result.question (if available on new data)
+    // 2. question prop (passed from parent for legacy data)
+    // 3. Fallback to a generic prompt if absolutely necessary (though this should be avoided)
+    const questionContext = result.question || question || "a Product Management interview question";
+
+    setGeneratingScripts(true);
+    try {
+      const { geminiService } = await import('../services/geminiService');
+      const { supabaseService } = await import('../services/supabaseService');
+      const { supabase } = await import('../services/supabaseService');
+      
+      const scripts = await geminiService.generateGoldenPathScripts(
+        isProductSense ? InterviewType.PRODUCT_SENSE : InterviewType.ANALYTICAL_THINKING,
+        questionContext,
+        result.goldenPath
+      );
+      
+      if (scripts.length > 0) {
+        // Update local state for immediate rendering
+        const newScripts: Record<number, string> = {};
+        scripts.forEach((script, i) => {
+          newScripts[i] = script;
+          if (result.goldenPath && result.goldenPath[i]) {
+             result.goldenPath[i].scriptExample = script;
+          }
+        });
+        setGeneratedScripts(newScripts);
+
+        // Persist to Supabase if user is logged in
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+           // We need to find the history item to update.
+           // Since we don't have the history ID passed in props, we have to look it up 
+           // by timestamp or just update the most recent one matching this question.
+           // A safer bet is to fetch the history, find the matching item, and update it.
+           
+           const history = await supabaseService.getHistory(user.id);
+           // Find the item that matches this result. 
+           // We can match on timestamp if available in result, or question title + score.
+           // Result doesn't have timestamp. 
+           // Let's try to match on question title and approximate time (if it was just created).
+           // OR, we can just look for the most recent item with this question title.
+           
+           // Use the same question context for matching
+           const match = history.find(h => (h.questionTitle === questionContext || h.title === questionContext) && h.xpAwarded === result.xpAwarded);
+           
+           if (match && match.id) {
+             // Update the result object within the history item
+             const updatedResult = { ...match.result } as InterviewResult;
+             if (updatedResult.goldenPath) {
+                updatedResult.goldenPath = updatedResult.goldenPath.map((step, i) => ({
+                    ...step,
+                    scriptExample: scripts[i] || step.scriptExample
+                }));
+             }
+             
+             await supabaseService.updateHistoryItem(user.id, match.id, {
+                result: updatedResult
+             });
+             console.log("Updated history item with generated scripts");
+           }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to generate scripts", e);
+    } finally {
+      setGeneratingScripts(false);
+    }
+  };
 
   if (selectedRubricIndex !== null) {
     lastValidRubricIndex.current = selectedRubricIndex;
@@ -1139,7 +1218,82 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
         </div>
 
         {showBenchmarkScript ? (
-          <BenchmarkScript text={result.benchmarkResponse} />
+          <div className="space-y-8 max-h-[800px] overflow-y-auto pr-4 no-scrollbar">
+            {/* Lazy Generation Button if scripts are missing */}
+            {result.goldenPath && result.goldenPath.some(step => !step.scriptExample && !generatedScripts[result.goldenPath!.indexOf(step)]) && (
+              <div className="bg-indigo-500/10 p-6 rounded-[2rem] border border-indigo-500/20 flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-indigo-500/20 rounded-xl">
+                    <Zap className="w-5 h-5 text-indigo-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white uppercase tracking-wide">Generate Staff Scripts</h4>
+                    <p className="text-xs text-slate-400 font-medium">Create custom spoken examples for this specific question.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleGenerateScripts}
+                  disabled={generatingScripts}
+                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {generatingScripts ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <span>Generate Now</span>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {result.goldenPath?.map((step, i) => {
+              // Check if user covered this step
+              // We consider it covered if ANY aligned user step matches keywords from this golden step
+              const isCovered = result.userLogicPath?.some(userStep => 
+                userStep.isAligned && 
+                step.title.toLowerCase().split(' ').some(kw => kw.length > 3 && userStep.step.toLowerCase().includes(kw))
+              );
+
+              const scriptContent = generatedScripts[i] || step.scriptExample;
+
+              return (
+                <div key={i} className={`p-8 rounded-[2.5rem] border transition-all relative overflow-hidden group ${
+                  !isCovered 
+                    ? 'bg-rose-500/5 border-rose-500/10' 
+                    : 'bg-white/5 border-white/5 hover:bg-white/10'
+                }`}>
+                  {!isCovered && (
+                    <div className="absolute top-0 right-0 p-6 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center space-x-2 px-3 py-1 bg-rose-500/10 rounded-full border border-rose-500/20">
+                         <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></div>
+                         <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Missed Step</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+                    <div className="shrink-0 flex lg:flex-col items-center lg:items-start gap-3">
+                      <span className={`text-3xl font-black ${!isCovered ? 'text-rose-500/20' : 'text-indigo-500/20'}`}>
+                        0{i+1}
+                      </span>
+                      <div className={`h-px w-8 ${!isCovered ? 'bg-rose-500/20' : 'bg-indigo-500/20'} hidden lg:block`}></div>
+                    </div>
+                    
+                    <div className="space-y-4 max-w-3xl">
+                      <h4 className={`text-sm font-black uppercase tracking-widest ${!isCovered ? 'text-rose-300' : 'text-indigo-300'}`}>
+                        {step.title}
+                      </h4>
+                      <p className="text-base text-slate-300 font-medium leading-relaxed font-serif italic">
+                        "{scriptContent || "Script example not available. Click 'Generate Now' above to create one."}"
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <div className="flex flex-col gap-6">
             {result.goldenPath?.map((step, i) => (

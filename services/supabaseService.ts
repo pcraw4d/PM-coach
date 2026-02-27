@@ -159,6 +159,27 @@ export const supabaseService = {
     if (error) console.error('Error adding history item:', error);
   },
 
+  async updateHistoryItem(userId: string, itemId: string, updates: Partial<HistoryItem>): Promise<void> {
+    if (!supabase) return;
+    
+    // Map frontend fields to DB columns if necessary
+    const dbUpdates: any = {};
+    if (updates.result) dbUpdates.result = updates.result;
+    if (updates.title) dbUpdates.title = updates.title;
+    // Add other fields as needed
+
+    const { error } = await supabase
+      .from('history')
+      .update(dbUpdates)
+      .eq('user_id', userId)
+      .eq('id', itemId);
+
+    if (error) {
+      console.error('Error updating history item:', error);
+      throw error;
+    }
+  },
+
   async getCompletedMissions(userId: string): Promise<string[]> {
     if (!supabase) return [];
     const { data, error } = await supabase
