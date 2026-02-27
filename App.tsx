@@ -12,6 +12,7 @@ import { DashboardProgress } from './components/DashboardProgress.tsx';
 import { InterviewType, Question, InterviewPhase, InterviewResult, HistoryItem, User, KnowledgeMission, ImprovementItem } from './types.ts';
 import { QUESTIONS } from './constants.tsx';
 import { geminiService } from './services/geminiService.ts';
+import { supabaseService } from './services/supabaseService.ts';
 
 type LoadingStage = 'UPLOADING_AUDIO' | 'TRANSCRIBING' | 'GENERATING_FOLLOWUPS' | 'GENERATING_LOGIC' | 'FINALIZING_AUDIT' | 'SEARCHING_RESOURCES';
 
@@ -59,21 +60,57 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isAuthorized) return;
-    const savedUser = localStorage.getItem('pm_coach_personal_user');
-    setUser(savedUser ? JSON.parse(savedUser) : { id: 'me', name: 'Product Master', avatarSeed: 'pm-'+Date.now(), joinedAt: Date.now() });
     
-    const savedHistory = localStorage.getItem('pm_coach_history');
-    if (savedHistory) setHistory(JSON.parse(savedHistory));
-    
-    const savedMissions = localStorage.getItem('pm_coach_missions');
-    const lastMissionsUpdate = localStorage.getItem('pm_coach_missions_timestamp');
-    const isCacheFresh = lastMissionsUpdate && (Date.now() - parseInt(lastMissionsUpdate)) < 86400000;
-
-    if (savedMissions && isCacheFresh) {
-        setDailyMissions(JSON.parse(savedMissions));
-    } else {
+    const initUser = async () => {
+      const savedUserStr = localStorage.getItem('pm_coach_personal_user');
+      const localUser = savedUserStr ? JSON.parse(savedUserStr) : { id: 'me', name: 'Product Master', avatarSeed: 'pm-'+Date.now(), joinedAt: Date.now() };
+      
+      // Sync with Supabase
+      const syncedUser = await supabaseService.syncUser(localUser);
+      
+      if (syncedUser) {
+        setUser(syncedUser);
+        // Update local storage with the synced ID (UUID)
+        localStorage.setItem('pm_coach_personal_user', JSON.stringify(syncedUser));
+        
+        // Load history from Supabase
+        const remoteHistory = await supabaseService.getHistory(syncedUser.id);
+        setHistory(remoteHistory);
+        
+        // Load completed missions
+        const completedMissionIds = await supabaseService.getCompletedMissions(syncedUser.id);
+        
+        // Load missions content
+        const savedMissions = localStorage.getItem('pm_coach_missions');
+        const lastMissionsUpdate = localStorage.getItem('pm_coach_missions_timestamp');
+        const isCacheFresh = lastMissionsUpdate && (Date.now() - parseInt(lastMissionsUpdate)) < 86400000;
+        
+        let currentMissions: KnowledgeMission[] = [];
+        if (savedMissions && isCacheFresh) {
+          currentMissions = JSON.parse(savedMissions);
+          setDailyMissions(currentMissions);
+        } else {
+          await loadMissions();
+          // Note: loadMissions updates state directly
+        }
+        
+        // Re-apply completion status based on Supabase data
+        if (completedMissionIds.length > 0) {
+           setDailyMissions(prev => prev.map(m => 
+             completedMissionIds.includes(m.id) ? { ...m, isCompleted: true } : m
+           ));
+        }
+        
+      } else {
+        // Fallback to local only if sync fails
+        setUser(localUser);
+        const savedHistory = localStorage.getItem('pm_coach_history');
+        if (savedHistory) setHistory(JSON.parse(savedHistory));
         loadMissions();
-    }
+      }
+    };
+
+    initUser();
   }, [isAuthorized]);
 
   const loadMissions = async () => {
@@ -91,12 +128,19 @@ const App: React.FC = () => {
     }
   };
 
-  const saveHistory = (newHistory: HistoryItem[]) => {
+  const saveHistory = async (newHistory: HistoryItem[]) => {
     setHistory(newHistory);
+    // Still save to local as backup/cache
     localStorage.setItem('pm_coach_history', JSON.stringify(newHistory));
+    
+    // Save the newest item to Supabase
+    if (user && newHistory.length > 0) {
+      const newestItem = newHistory[0];
+      await supabaseService.addHistoryItem(user.id, newestItem);
+    }
   };
 
-  const handleMissionComplete = (missionId: string) => {
+  const handleMissionComplete = async (missionId: string) => {
     const mission = dailyMissions.find(m => m.id === missionId);
     if (!mission || mission.isCompleted) return;
 
@@ -113,7 +157,17 @@ const App: React.FC = () => {
       title: mission.title,
       xpAwarded: mission.xpAwarded
     };
-    saveHistory([missionHistoryItem, ...history]);
+    
+    // Update local state immediately
+    const newHistory = [missionHistoryItem, ...history];
+    setHistory(newHistory);
+    localStorage.setItem('pm_coach_history', JSON.stringify(newHistory));
+
+    // Sync to Supabase
+    if (user) {
+      await supabaseService.completeMission(user.id, missionId);
+      await supabaseService.addHistoryItem(user.id, missionHistoryItem);
+    }
   };
 
   const handleStartInterview = (type: InterviewType) => {
