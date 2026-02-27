@@ -1,7 +1,11 @@
+import type { PMLevelBand, SessionScoreBreakdown } from './utils/scoringEngine';
+
 export enum InterviewType {
   PRODUCT_SENSE = 'PRODUCT_SENSE',
   ANALYTICAL_THINKING = 'ANALYTICAL_THINKING'
 }
+
+export type { PMLevelBand, SessionScoreBreakdown };
 
 export interface User {
   id: string;
@@ -89,25 +93,6 @@ export interface UserLogicStep {
   step: string;
   isAligned: boolean;
   staffPivot?: string;
-}
-
-export interface PMLevelBand {
-  label: 'Staff' | 'Senior' | 'Mid-level' | 'Associate';
-  threshold: number;
-  floorThreshold: number;
-  gapToNextLevel?: number;
-}
-
-export interface SessionScoreBreakdown {
-  overallScore: number;
-  weightedRubricScore: number;
-  communicationScore: number;
-  floorScore: number;
-  ceilingScore: number;
-  floorCategory: string;
-  ceilingCategory: string;
-  pmLevel: PMLevelBand;
-  penaltyApplied: boolean;
 }
 
 export interface InterviewResult {

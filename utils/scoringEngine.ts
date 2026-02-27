@@ -97,8 +97,8 @@ export function computeSessionScore(
   ) / 4;
 
   // 4. Calculate Final Overall Score
-  // 70% Rubric, 15% Communication, 15% Reserved (0 for now)
-  const overallScore = Math.round((rawWeightedRubricScore * 0.70) + (commScore * 0.15));
+  // 70% Rubric, 15% Communication, 15% Reserved (filled with rubric score for now)
+  const overallScore = Math.round((rawWeightedRubricScore * 0.70) + (commScore * 0.15) + (rawWeightedRubricScore * 0.15));
 
   // 5. Determine PM Level
   let level: PMLevelBand;
