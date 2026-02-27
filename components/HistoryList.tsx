@@ -268,6 +268,65 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
     };
   }, [history]);
 
+  const { interviewDeltas, trendSummary } = useMemo(() => {
+    const interviews = history
+      .filter(h => h.activityType === 'INTERVIEW' && h.result)
+      .sort((a, b) => a.timestamp - b.timestamp); // Chronological
+
+    const deltas = new Map<string, number | null>();
+    
+    interviews.forEach((interview, index) => {
+      // Rolling baseline: average of up to 5 preceding sessions
+      const startIdx = Math.max(0, index - 5);
+      const preceding = interviews.slice(startIdx, index);
+      
+      if (preceding.length === 0) {
+        deltas.set(interview.id, null);
+      } else {
+        const sum = preceding.reduce((acc, curr) => acc + (curr.result?.overallScore || 0), 0);
+        const avg = sum / preceding.length;
+        const currentScore = interview.result?.overallScore || 0;
+        deltas.set(interview.id, Math.round(currentScore - avg));
+      }
+    });
+
+    // Trend Summary
+    let summary = null;
+    if (interviews.length >= 3) {
+        let recent: typeof interviews;
+        let previous: typeof interviews;
+        
+        // "trend across the most recent 5 interviews... compared to the 5 before that"
+        // If we have fewer than 10, we split the available history to give a meaningful trend
+        if (interviews.length >= 10) {
+            recent = interviews.slice(-5);
+            previous = interviews.slice(-10, -5);
+        } else {
+            // Split roughly in half
+            const splitPoint = Math.floor(interviews.length / 2);
+            previous = interviews.slice(0, splitPoint);
+            recent = interviews.slice(splitPoint);
+        }
+
+        const recentAvg = recent.reduce((a, b) => a + (b.result?.overallScore || 0), 0) / recent.length;
+        const prevAvg = previous.length > 0 
+            ? previous.reduce((a, b) => a + (b.result?.overallScore || 0), 0) / previous.length 
+            : recentAvg;
+            
+        const diff = recentAvg - prevAvg;
+        let direction: 'up' | 'flat' | 'down' = 'flat';
+        if (diff > 2) direction = 'up';
+        else if (diff < -2) direction = 'down';
+        
+        summary = {
+            average: Math.round(recentAvg),
+            direction
+        };
+    }
+
+    return { interviewDeltas: deltas, trendSummary: summary };
+  }, [history]);
+
   const formatDate = (ts: number) => {
     return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: '2-digit' }).format(new Date(ts));
   };
@@ -377,9 +436,30 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
       <WeaknessIntelligencePanel history={history} />
 
       <div className="space-y-6">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Activity Feed</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Activity Feed</h3>
+          {trendSummary && (
+            <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-xl border border-slate-100 shadow-sm">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recent Trend</span>
+              <div className="flex items-center space-x-2">
+                <span className="text-lg font-black text-slate-900">{trendSummary.average}</span>
+                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                  trendSummary.direction === 'up' ? 'bg-emerald-100 text-emerald-700' :
+                  trendSummary.direction === 'down' ? 'bg-rose-100 text-rose-700' :
+                  'bg-slate-100 text-slate-500'
+                }`}>
+                  {trendSummary.direction === 'up' ? 'Trending Up' :
+                   trendSummary.direction === 'down' ? 'Trending Down' : 'Stable'}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="grid gap-4">
-          {history.sort((a, b) => b.timestamp - a.timestamp).map((item) => (
+          {[...history].sort((a, b) => b.timestamp - a.timestamp).map((item) => {
+            const delta = item.activityType === 'INTERVIEW' ? interviewDeltas.get(item.id) : null;
+            
+            return (
             <div key={item.id} className="group flex flex-col md:flex-row md:items-center justify-between p-7 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm hover:border-indigo-200 hover:shadow-xl transition-all duration-300">
               <div className="flex items-center space-x-6">
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner ${item.activityType === 'MISSION' ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'}`}>
@@ -391,6 +471,11 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
                     <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${item.activityType === 'MISSION' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>
                       {item.activityType}
                     </span>
+                    {item.activityType === 'INTERVIEW' && item.result?.scoreBreakdown && (
+                      <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-500">
+                        {item.result.scoreBreakdown.pmLevel.label}
+                      </span>
+                    )}
                   </div>
                   <h4 className="text-lg font-black text-slate-900 leading-tight">{item.activityType === 'MISSION' ? item.title : item.questionTitle}</h4>
                 </div>
@@ -399,8 +484,14 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
               <div className="mt-4 md:mt-0 flex items-center gap-6">
                 {item.activityType === 'INTERVIEW' && item.result && (
                   <div className="flex items-center gap-4 mr-4">
-                    {analytics && item.result.overallScore > analytics.avgScore && (
-                       <span className="bg-emerald-100 text-emerald-700 text-[8px] font-black px-2 py-1 rounded uppercase tracking-tighter">Above Avg</span>
+                    {delta !== null && delta !== undefined && (
+                      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-tighter ${
+                        delta > 2 ? 'bg-emerald-100 text-emerald-700' :
+                        delta < -2 ? 'bg-rose-100 text-rose-700' :
+                        'bg-slate-100 text-slate-400'
+                      }`}>
+                        {delta > 2 ? `+${delta}` : delta < -2 ? delta : '-'}
+                      </span>
                     )}
                     <div className="text-right">
                        <span className="text-2xl font-black text-slate-900">{item.result.overallScore}</span>
@@ -414,7 +505,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
                 )}
               </div>
             </div>
-          ))}
+          )})}
         </div>
       </div>
     </div>
