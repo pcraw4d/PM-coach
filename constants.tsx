@@ -276,3 +276,34 @@ export const RUBRIC_DEFINITIONS: Record<string, {
     ]
   }
 };
+
+export const WEAKNESS_SEARCH_MAPPING: Record<string, string[]> = {
+  // Product Sense
+  "Goal Definition": ["product strategy framework", "setting product goals", "product vision examples"],
+  "User Problem Prioritization": ["user segmentation framework", "pain point prioritization", "identifying unmet user needs"],
+  "Solution Creativity & Design": ["product design thinking", "creative problem solving pm", "10x product solution examples"],
+  "Execution & Sequencing (MVP)": ["MVP definition guide", "product roadmap sequencing", "riskiest assumption test"],
+  "Strategic Moat": ["defensibility strategy product", "network effects examples", "building product moats"],
+  "Second-Order Effects": ["product risk assessment", "system thinking product management", "cannibalization analysis"],
+
+  // Analytical Thinking
+  "Root Cause Analysis (Debugging)": ["metric drop root cause analysis", "KPI debugging framework", "investigating data anomalies"],
+  "Hypothesis Generation": ["MECE hypothesis generation", "structured problem solving pm", "data driven hypothesis"],
+  "Metric Funnel": ["AARRR funnel analysis", "product metrics framework", "north star metric examples"],
+  "Unintended Consequences": ["cannibalization analysis product", "counter metrics examples", "game theory product management"],
+  "Incremental Lift": ["ab testing significance", "incremental lift analysis", "holdout groups product management"],
+  "Trade-off Decision Making": ["product trade-off framework", "decision making framework pm", "prioritization frameworks rice"]
+};
+
+export const getSearchQueriesForWeaknesses = (weaknessCategories: string[]): string[] => {
+  const queries = new Set<string>();
+  
+  weaknessCategories.forEach(category => {
+    const terms = WEAKNESS_SEARCH_MAPPING[category];
+    if (terms) {
+      terms.forEach(term => queries.add(term));
+    }
+  });
+  
+  return Array.from(queries);
+};

@@ -41,6 +41,7 @@ export interface KnowledgeMission {
   summary: string;
   xpAwarded: number;
   isCompleted?: boolean;
+  targetedSkill?: string;
 }
 
 export interface SyncData {
@@ -126,3 +127,20 @@ export interface HistoryItem {
 }
 
 export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input' | 'practice-delta';
+
+export type TrendDirection = 'improving' | 'plateauing' | 'regressing';
+
+export interface WeaknessPattern {
+  category: string;
+  sessionCount: number;
+  averageScore: number;
+  trend: TrendDirection;
+  recurringActions: string[];
+}
+
+export interface AggregatedWeaknessProfile {
+  topWeaknesses: WeaknessPattern[];
+  hedgingTrend: { timestamp: number; count: number }[];
+  logicAlignmentTrend: { timestamp: number; percentage: number }[];
+  lastComputed: number;
+}

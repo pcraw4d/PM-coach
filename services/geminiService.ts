@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, GenerateContentResponse, ThinkingLevel } from "@google/genai";
-import { InterviewType, InterviewResult, KnowledgeMission, ImprovementItem } from "../types.ts";
-import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS } from '../constants.tsx';
+import { InterviewType, InterviewResult, KnowledgeMission, ImprovementItem, AggregatedWeaknessProfile } from "../types.ts";
+import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS, getSearchQueriesForWeaknesses } from '../constants.tsx';
 
 // Update model names here when Google releases new versions
 // Current models: https://ai.google.dev/gemini-api/docs/models
@@ -431,9 +431,60 @@ export class GeminiService {
     return response.text || "";
   }
 
-  async discoverMissions(): Promise<KnowledgeMission[]> {
+  async discoverMissions(weaknessProfile?: AggregatedWeaknessProfile): Promise<KnowledgeMission[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-    const prompt = `
+    
+    let prompt = "";
+    
+    if (weaknessProfile && weaknessProfile.topWeaknesses.length >= 2) {
+       // Targeted Discovery
+       const topWeaknesses = weaknessProfile.topWeaknesses.slice(0, 2);
+       const categories = topWeaknesses.map(w => w.category);
+       const searchQueries = getSearchQueriesForWeaknesses(categories);
+
+       prompt = `
+  Search the web for high-quality Product Management learning content specifically addressing these skill gaps:
+  ${categories.join(", ")}
+
+  Use these search queries to find the best resources:
+  ${searchQueries.map(q => `- ${q}`).join("\n")}
+
+  Focus on "Timeless", "Seminal", and "High-Signal" content. Do not prioritize recent news; prioritize quality and authority.
+
+  Primary Sources (but not limited to):
+  - Lenny's Newsletter (lennysnewsletter.com)
+  - SVPG (svpg.com)
+  - Reforge (reforge.com)
+  - First Round Review (review.firstround.com)
+  - Shreyas Doshi (Substack, LinkedIn, Twitter)
+  - Mind the Product (mindtheproduct.com)
+  - Product Coalition (productcoalition.com)
+  - Bring the Donuts (ken-norton.com)
+  - Department of Product (departmentofproduct.com)
+  - Andrew Chen (andrewchen.com)
+
+  CRITICAL URL RULES:
+  1. You MUST use the EXACT URL returned by the Google Search tool.
+  2. Do NOT construct, guess, or predict URLs based on titles.
+  3. If you cannot find a verified, accessible URL for a resource, DO NOT include it.
+  4. 404 errors are unacceptable. Verify the URL exists in your search results.
+
+  Return a JSON array of exactly 4 objects.
+  CRITICAL: Return ONLY the JSON array. Do not include any conversational text, markdown formatting, or explanations.
+
+  Each object must have:
+  - id: lowercase-hyphenated slug max 40 chars, e.g. "lennys-metrics-framework"
+  - title: exact article or episode title
+  - source: publication name as it appears on the site
+  - url: the exact verified URL from your search
+  - type: exactly one of "article", "video", or "podcast"
+  - summary: 2-3 sentences describing the core PM insight a practitioner would take away
+  - xpAwarded: integer between 25 and 50. Use 50 for long-form strategic pieces, 25 for shorter reads
+  - targetedSkill: (Optional) The specific weakness category this content addresses (e.g. "${categories[0]}")
+`;
+    } else {
+       // Generic Discovery (Fallback)
+       prompt = `
   Search the web for the highest-quality, most definitive Product Management learning content available.
   
   Focus on "Timeless", "Seminal", and "High-Signal" content. Do not prioritize recent news; prioritize quality and authority.
@@ -468,6 +519,7 @@ export class GeminiService {
   - summary: 2-3 sentences describing the core PM insight a practitioner would take away
   - xpAwarded: integer between 25 and 50. Use 50 for long-form strategic pieces, 25 for shorter reads
 `;
+    }
     
     try {
       const response = await flashQueue.add(() =>
