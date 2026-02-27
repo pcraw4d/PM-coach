@@ -18,7 +18,7 @@ import {
 
 interface HistoryListProps {
   history: HistoryItem[];
-  onSelect: (interview: any) => void;
+  onSelect: (result: any) => void;
   onClear: () => void;
 }
 
@@ -112,25 +112,47 @@ const WeaknessIntelligencePanel: React.FC<{ history: HistoryItem[] }> = ({ histo
         )}
 
         {/* Prescribed Reading Section */}
-        {history.some(h => h.activityType === 'MISSION' && h.targetedSkill) && (
+        {history.some(h => h.activityType === 'MISSION') && (
           <div className="bg-indigo-50 p-6 rounded-[2.5rem] border border-indigo-100">
             <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Prescribed Reading</h4>
-            <div className="space-y-3">
-              {history
-                .filter(h => h.activityType === 'MISSION' && h.targetedSkill)
-                .slice(0, 3)
-                .map((mission, i) => (
-                  <a key={i} href={mission.url} target="_blank" rel="noopener noreferrer" className="block bg-white p-4 rounded-2xl border border-indigo-100 hover:border-indigo-300 transition-all group">
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="bg-indigo-100 text-indigo-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tight">
-                        {mission.targetedSkill}
+            <div className="space-y-4">
+              {/* Group missions by targeted skill */}
+              {Object.entries(
+                history
+                  .filter(h => h.activityType === 'MISSION')
+                  .reduce((acc, mission) => {
+                    const skill = mission.targetedSkill || 'General Knowledge';
+                    if (!acc[skill]) acc[skill] = [];
+                    acc[skill].push(mission);
+                    return acc;
+                  }, {} as Record<string, typeof history>)
+              ).slice(0, 3).map(([skill, missions], i) => (
+                <div key={i} className="space-y-2">
+                  {skill !== 'General Knowledge' && (
+                    <div className="flex items-center space-x-2 px-1">
+                      <div className="w-1 h-1 bg-indigo-400 rounded-full"></div>
+                      <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">
+                        For {skill}
                       </span>
                     </div>
-                    <p className="text-xs font-bold text-slate-900 line-clamp-2 group-hover:text-indigo-600 transition-colors">
-                      {mission.title}
-                    </p>
-                  </a>
-                ))}
+                  )}
+                  <div className="space-y-2">
+                    {missions.slice(0, 2).map((mission, j) => (
+                      <a key={j} href={mission.url} target="_blank" rel="noopener noreferrer" className="block bg-white p-4 rounded-2xl border border-indigo-100 hover:border-indigo-300 transition-all group relative overflow-hidden">
+                        {/* Subtle progress bar for completed missions if we had that data here, but we don't track read status on history items yet */}
+                        <div className="relative z-10">
+                          <p className="text-xs font-bold text-slate-900 line-clamp-2 group-hover:text-indigo-600 transition-colors leading-snug">
+                            {mission.title}
+                          </p>
+                          {skill === 'General Knowledge' && (
+                            <p className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-wider">Foundation</p>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -388,7 +410,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ history, onSelect, onC
                 )}
                 {item.activityType === 'MISSION' && <span className="text-emerald-500 font-black text-sm pr-4">+{item.xpAwarded} XP</span>}
                 {item.activityType === 'INTERVIEW' && (
-                  <button onClick={() => onSelect(item)} className="bg-slate-900 text-white font-black py-3 px-6 rounded-xl text-[10px] uppercase tracking-widest hover:bg-indigo-600 transition shadow-lg transform active:scale-95">View Audit</button>
+                  <button onClick={() => onSelect({ ...item.result, question: item.questionTitle })} className="bg-slate-900 text-white font-black py-3 px-6 rounded-xl text-[10px] uppercase tracking-widest hover:bg-indigo-600 transition shadow-lg transform active:scale-95">View Audit</button>
                 )}
               </div>
             </div>
