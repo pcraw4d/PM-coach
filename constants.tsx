@@ -73,43 +73,50 @@ export const GOLDEN_PATH_PRODUCT_SENSE = [
     title: "Define the Business Goal",
     content: "State the primary business objective before touching users or features. Tie it to the company's strategic moat and current growth stage.",
     why: "Staff PMs lead with business context. Jumping to users first signals junior thinking.",
-    strategicTradeOffs: "Skipping this step means your entire solution optimizes for the wrong outcome."
+    strategicTradeOffs: "Skipping this step means your entire solution optimizes for the wrong outcome.",
+    scriptExample: ""
   },
   {
     title: "Identify and Segment Users",
     content: "Name 2-3 distinct user segments by behavior or pain point, not demographics. Explicitly choose one to focus on and state why.",
     why: "Behavioral segmentation shows analytical depth. Demographic segmentation is table stakes.",
-    strategicTradeOffs: "Targeting everyone means your solution is optimized for no one."
+    strategicTradeOffs: "Targeting everyone means your solution is optimized for no one.",
+    scriptExample: ""
   },
   {
     title: "Prioritize the Hair-on-Fire Problem",
     content: "Identify the single most critical unmet need for your chosen segment. Justify the prioritization using impact and frequency.",
     why: "Staff PMs solve the right problem. The most common failure mode is solving a real but low-leverage problem.",
-    strategicTradeOffs: "Picking a nice-to-have over a hair-on-fire problem produces solutions users appreciate but do not need."
+    strategicTradeOffs: "Picking a nice-to-have over a hair-on-fire problem produces solutions users appreciate but do not need.",
+    scriptExample: ""
   },
   {
     title: "Design a 10x Solution with Magic Moment",
     content: "Propose a solution that is an order of magnitude better than the status quo, not an incremental improvement. Describe the exact moment the user experiences the core value.",
     why: "Incremental solutions get incremental adoption. Staff PMs think about step-change improvements.",
-    strategicTradeOffs: "A safe, obvious solution signals you are optimizing for not being wrong rather than being right."
+    strategicTradeOffs: "A safe, obvious solution signals you are optimizing for not being wrong rather than being right.",
+    scriptExample: ""
   },
   {
     title: "Define a Ruthless MVP",
     content: "Scope the smallest possible version that tests the riskiest assumption. Name the assumption explicitly. Describe what a failed MVP looks like.",
     why: "MVP definition reveals whether a PM can separate learning objectives from feature completeness.",
-    strategicTradeOffs: "An MVP that is just a smaller version of the full product tests nothing and wastes runway."
+    strategicTradeOffs: "An MVP that is just a smaller version of the full product tests nothing and wastes runway.",
+    scriptExample: ""
   },
   {
     title: "Establish Metric Funnel",
     content: "Define a precise North Star metric tied to the business goal. Add at least one guardrail metric that would trigger a rollback.",
     why: "North Star without guardrails invites dark patterns. Staff PMs define what success looks like AND what would constitute a false positive.",
-    strategicTradeOffs: "Vanity metrics make launches look successful while the business erodes."
+    strategicTradeOffs: "Vanity metrics make launches look successful while the business erodes.",
+    scriptExample: ""
   },
   {
     title: "Address Second-Order Effects",
     content: "Name at least one way this solution could cannibalize an existing product line or create ecosystem risk. Propose a mitigation.",
     why: "Staff PMs are responsible for the ecosystem, not just their feature. Ignoring second-order effects is the most common senior-to-staff gap.",
-    strategicTradeOffs: "A solution that wins its metric while damaging the broader product is a net negative."
+    strategicTradeOffs: "A solution that wins its metric while damaging the broader product is a net negative.",
+    scriptExample: ""
   }
 ];
 
@@ -118,43 +125,50 @@ export const GOLDEN_PATH_ANALYTICAL = [
     title: "Establish MECE Diagnostic Framework",
     content: "Before hypothesizing, build a complete diagnostic tree that is Mutually Exclusive and Collectively Exhaustive. Separate internal factors from external factors.",
     why: "A non-MECE framework guarantees you will miss the root cause. The tree must be complete before you descend into any branch.",
-    strategicTradeOffs: "Starting with a hypothesis before building the framework anchors you to the wrong branch."
+    strategicTradeOffs: "Starting with a hypothesis before building the framework anchors you to the wrong branch.",
+    scriptExample: ""
   },
   {
     title: "Rule Out Data Artifacts First",
     content: "Before analyzing user behavior, verify the data is trustworthy. Check for tracking bugs, instrumentation changes, or dashboard misconfiguration.",
     why: "The fastest root cause is a measurement error. Staff PMs check the ruler before measuring.",
-    strategicTradeOffs: "Spending two weeks analyzing a metric drop caused by a tracking bug is a career-limiting move."
+    strategicTradeOffs: "Spending two weeks analyzing a metric drop caused by a tracking bug is a career-limiting move.",
+    scriptExample: ""
   },
   {
     title: "Generate Ranked Hypotheses",
     content: "Produce 3-4 specific, falsifiable hypotheses ranked by prior probability. Each hypothesis must name the affected user segment and the mechanism.",
     why: "Hypotheses must be falsifiable or they are not hypotheses. Ranking them prevents you from pursuing low-probability causes.",
-    strategicTradeOffs: "Unranked hypotheses lead to random investigation order and wasted analyst time."
+    strategicTradeOffs: "Unranked hypotheses lead to random investigation order and wasted analyst time.",
+    scriptExample: ""
   },
   {
     title: "Design Low-Cost Validation",
     content: "For each hypothesis, propose the cheapest possible test. Data queries before A/B tests. Cohort analysis before experiments. Manual checks before automated pipelines.",
     why: "A/B tests are expensive and slow. Staff PMs exhaust cheap validation methods first.",
-    strategicTradeOffs: "Defaulting to A/B tests signals you do not know how to do exploratory analysis."
+    strategicTradeOffs: "Defaulting to A/B tests signals you do not know how to do exploratory analysis.",
+    scriptExample: ""
   },
   {
     title: "Define North Star and Guardrails",
     content: "State the single metric that best represents the value delivered to users. Add 1-2 guardrail metrics that would indicate harm to adjacent areas.",
     why: "A North Star without guardrails will be gamed. The guardrail is what keeps optimization honest.",
-    strategicTradeOffs: "Optimizing a single metric without guardrails is how engagement features become addictive dark patterns."
+    strategicTradeOffs: "Optimizing a single metric without guardrails is how engagement features become addictive dark patterns.",
+    scriptExample: ""
   },
   {
     title: "Measure Incremental Lift, Not Absolute Change",
     content: "Design a holdout group or difference-in-differences analysis to isolate true incremental impact from baseline trends or cannibalization.",
     why: "Absolute change conflates your impact with external trends. Incremental lift is the only honest measure of a feature's contribution.",
-    strategicTradeOffs: "Reporting absolute growth without a holdout group overstates impact and leads to bad prioritization decisions."
+    strategicTradeOffs: "Reporting absolute growth without a holdout group overstates impact and leads to bad prioritization decisions.",
+    scriptExample: ""
   },
   {
     title: "Make a Definitive Go/No-Go Recommendation",
     content: "State a clear recommendation with the specific threshold that drove the decision. Acknowledge the strongest counterargument and explain why you are overriding it.",
     why: "Staff PMs make decisions under uncertainty. Presenting options without a recommendation delegates the hard work upward.",
-    strategicTradeOffs: "Hedging the recommendation signals you do not trust your own analysis."
+    strategicTradeOffs: "Hedging the recommendation signals you do not trust your own analysis.",
+    scriptExample: ""
   }
 ];
 

@@ -806,8 +806,8 @@ ${followUpTranscript}`;
 
       LOGIC MAPPING INSTRUCTIONS:
       - userLogicPath: Break down the user's response into a sequence of logical steps. For each step, determine if it aligns with the Staff Golden Path (isAligned). If it does NOT align, provide a specific 'staffPivot' explaining the tactical correction for that specific line.
-      - goldenPath: Return the GOLDEN PATH REFERENCE provided above exactly as-is. Do not generate a new path. Copy it verbatim.
-      - scriptExample: For each step in the goldenPath, generate a 3-5 sentence script showing EXACTLY what a Staff PM would say at that specific moment in the interview.
+      - goldenPath: Return the GOLDEN PATH REFERENCE provided above. You must preserve the title, content, why, and strategicTradeOffs fields exactly as provided. However, you MUST generate and populate the 'scriptExample' field for every step.
+      - scriptExample: Generate a 3-5 sentence script showing EXACTLY what a Staff PM would say at that specific moment in the interview.
         - Use the exact question context (company, product, scenario)
         - Sound like natural spoken interview language, not written prose
         - End with a transition phrase that sets up the next step
