@@ -909,16 +909,59 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
               <h2 className="text-5xl lg:text-7xl font-black tracking-tighter leading-none">Strategic Mastery</h2>
             </div>
             
-            <div className="lg:col-span-3 flex items-center gap-6 bg-white/5 p-4 rounded-[2.5rem] border border-white/10 h-full">
-              <div className="px-6 py-4 bg-indigo-600 rounded-[2rem] shadow-xl border border-indigo-500/30 flex flex-col items-center justify-center flex-1">
+            <div className="lg:col-span-3 flex items-center gap-6 bg-white/5 p-4 rounded-[2.5rem] border border-white/10 h-full relative">
+              {result.scoreBreakdown?.penaltyApplied && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20">
+                  <span className="bg-rose-500 text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg border border-rose-400 flex items-center gap-1 whitespace-nowrap">
+                    <AlertCircle className="w-3 h-3" />
+                    Critical Gap Penalty Applied
+                  </span>
+                </div>
+              )}
+
+              <div className="px-6 py-4 bg-indigo-600 rounded-[2rem] shadow-xl border border-indigo-500/30 flex flex-col items-center justify-center flex-1 min-w-[140px]">
                 <span className="text-[8px] font-black text-indigo-200 uppercase tracking-widest mb-1">Rating</span>
-                <span className="text-3xl font-black">{result.overallScore}</span>
+                {result.scoreBreakdown ? (
+                  <>
+                    <span className="text-2xl font-black text-white leading-none mb-1 text-center">{result.scoreBreakdown.pmLevel.label}</span>
+                    <span className="text-sm font-bold text-indigo-200">{result.scoreBreakdown.overallScore}</span>
+                    {(result.scoreBreakdown.pmLevel.gapToNextLevel || 0) > 0 && (
+                       <span className="text-[9px] font-bold text-indigo-300 mt-2 bg-indigo-700/50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                         +{result.scoreBreakdown.pmLevel.gapToNextLevel} pts to {
+                           result.scoreBreakdown.pmLevel.label === 'Associate' ? 'Mid-level' :
+                           result.scoreBreakdown.pmLevel.label === 'Mid-level' ? 'Senior' :
+                           result.scoreBreakdown.pmLevel.label === 'Senior' ? 'Staff' : 'Next Level'
+                         }
+                       </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-3xl font-black">{result.overallScore}</span>
+                )}
               </div>
+              
               <div className="pr-4 flex flex-col justify-center">
-                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Stability</span>
-                <span className={`text-xl font-black ${result.defensivePivotScore >= 80 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {result.defensivePivotScore}%
-                </span>
+                {result.scoreBreakdown ? (
+                  <>
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Floor Risk</span>
+                    <span className={`text-2xl font-black ${
+                      result.scoreBreakdown.floorScore < 55 ? 'text-rose-400' :
+                      result.scoreBreakdown.floorScore < 70 ? 'text-amber-400' : 'text-emerald-400'
+                    }`}>
+                      {result.scoreBreakdown.floorScore}
+                    </span>
+                    <span className="text-[9px] font-bold text-slate-500 max-w-[100px] leading-tight mt-1 line-clamp-2">
+                      {result.scoreBreakdown.floorCategory}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Stability</span>
+                    <span className={`text-xl font-black ${result.defensivePivotScore >= 80 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {result.defensivePivotScore}%
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
