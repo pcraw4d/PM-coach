@@ -91,6 +91,25 @@ export interface UserLogicStep {
   staffPivot?: string;
 }
 
+export interface PMLevelBand {
+  label: 'Staff' | 'Senior' | 'Mid-level' | 'Associate';
+  threshold: number;
+  floorThreshold: number;
+  gapToNextLevel?: number;
+}
+
+export interface SessionScoreBreakdown {
+  overallScore: number;
+  weightedRubricScore: number;
+  communicationScore: number;
+  floorScore: number;
+  ceilingScore: number;
+  floorCategory: string;
+  ceilingCategory: string;
+  pmLevel: PMLevelBand;
+  penaltyApplied: boolean;
+}
+
 export interface InterviewResult {
   id?: string; // Optional ID for reference
   question: string; // The question asked
@@ -117,6 +136,7 @@ export interface InterviewResult {
   recommendedResources: Resource[];
   communicationAnalysis: CommunicationAnalysis;
   benchmarkResponse: string;
+  scoreBreakdown?: SessionScoreBreakdown;
 }
 
 export interface HistoryItem {
