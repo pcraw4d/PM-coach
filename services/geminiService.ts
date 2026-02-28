@@ -365,22 +365,99 @@ export class GeminiService {
   private extractJson(text: string): any {
     if (!text) return null;
 
+    // Helper to sanitize JSON string content
+    const sanitizeJsonString = (str: string): string => {
+      // 1. Remove markdown code blocks
+      let cleaned = str.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
+      
+      // 2. Find the outermost JSON structure (object or array)
+      const firstArray = cleaned.indexOf('[');
+      const firstObject = cleaned.indexOf('{');
+      let startIdx = -1;
+      
+      if (firstArray !== -1 && (firstObject === -1 || firstArray < firstObject)) {
+        startIdx = firstArray;
+      } else if (firstObject !== -1) {
+        startIdx = firstObject;
+      }
+      
+      if (startIdx === -1) return cleaned;
+      
+      // 3. Extract just the JSON part
+      // We need to find the matching closing brace/bracket
+      // Simple lastIndexOf might fail if there's text after the JSON
+      // But for now, let's try to find the last valid closer
+      const lastArray = cleaned.lastIndexOf(']');
+      const lastObject = cleaned.lastIndexOf('}');
+      let endIdx = Math.max(lastArray, lastObject);
+      
+      if (endIdx <= startIdx) return cleaned;
+      
+      let jsonCandidate = cleaned.substring(startIdx, endIdx + 1);
+
+      // 4. Sanitize control characters within strings
+      // This regex looks for unescaped newlines within quotes
+      // It's a heuristic and might not be perfect for all cases but handles the common one
+      // We replace literal newlines with \n
+      jsonCandidate = jsonCandidate.replace(/\n/g, '\\n')
+                                   .replace(/\r/g, '\\r')
+                                   .replace(/\t/g, '\\t');
+
+      // 5. Remove trailing commas (common LLM error)
+      jsonCandidate = jsonCandidate.replace(/,\s*([\]}])/g, '$1');
+      
+      return jsonCandidate;
+    };
+
     // Strategy 1: Look for markdown code blocks.
-    // We prefer the last block as it's likely the final answer (e.g. after reasoning).
     const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
     const matches = [...text.matchAll(codeBlockRegex)];
     
     if (matches.length > 0) {
-      // Try from the last block backwards
       for (let i = matches.length - 1; i >= 0; i--) {
         try {
-          const content = matches[i][1].trim();
-          // Basic sanitization for trailing commas
-          const sanitized = content.replace(/,\s*([\]}])/g, '$1');
-          return JSON.parse(sanitized);
+          const content = matches[i][1];
+          // Apply sanitization to the content of the code block
+          // We need to be careful not to double-escape if the LLM already escaped it
+          // The issue is literal newlines in the string value.
+          // JSON.parse expects \n, not a literal newline character.
+          
+          // Simple approach: Replace literal newlines with space or nothing if they are inside strings?
+          // Actually, the error is "Bad control character".
+          // We can try to replace literal control characters.
+          
+          const sanitized = content.replace(/[\u0000-\u001F]+/g, (match) => {
+             // Allow whitespace that is valid in JSON (outside strings)
+             // But inside strings, they must be escaped.
+             // Since we can't easily parse context, let's just replace literal newlines
+             // with \n if they look like they are part of the data.
+             // However, simply replacing all \n with \\n might break formatting.
+             return ''; 
+          });
+
+          // Better approach: Use a dedicated sanitizer that handles the specific error
+          // The error in the log was: SyntaxError: Bad control character in string literal in JSON at position 411
+          // This means a literal newline was inside a string "url": "...\n"
+          
+          // Let's try a robust regex replacement for unescaped newlines in strings
+          // This is hard to do perfectly with regex.
+          // Instead, let's try to parse, and if it fails, try to clean.
+          
+          return JSON.parse(content);
         } catch (e) {
-          // Continue to next block if this one fails
-          continue;
+            // If standard parse fails, try aggressive sanitization
+            try {
+                let sanitized = matches[i][1];
+                // Remove literal newlines that are likely inside strings
+                // We can't distinguish easily, so we might just strip them or replace with space
+                // But for URLs, we want to strip them.
+                sanitized = sanitized.replace(/[\r\n]+/g, '');
+                // Fix trailing commas
+                sanitized = sanitized.replace(/,\s*([\]}])/g, '$1');
+                return JSON.parse(sanitized);
+            } catch (e2) {
+                continue;
+            }
         }
       }
     }
@@ -388,7 +465,7 @@ export class GeminiService {
     // Strategy 2: Fallback to finding the outermost JSON structure
     try {
       let cleaned = text.trim();
-      // Remove code fences if they exist but weren't caught by regex (unlikely but safe)
+      // Remove code fences
       cleaned = cleaned.replace(/```(?:json)?/g, '').replace(/```/g, '').trim();
       
       const firstArray = cleaned.indexOf('[');
@@ -409,27 +486,19 @@ export class GeminiService {
         return null;
       }
 
-      // If we found a start but the end is weird or missing
-      if (endIdx === -1 || endIdx <= startIdx) {
-        let fragment = cleaned.substring(startIdx);
-        // Attempt to close open structures (heuristic)
-        const openBraces = (fragment.match(/{/g) || []).length;
-        const closeBraces = (fragment.match(/}/g) || []).length;
-        const openBrackets = (fragment.match(/\[/g) || []).length;
-        const closeBrackets = (fragment.match(/]/g) || []).length;
-        for (let i = 0; i < (openBrackets - closeBrackets); i++) fragment += ']';
-        for (let i = 0; i < (openBraces - closeBraces); i++) fragment += '}';
-        try {
-          return JSON.parse(fragment);
-        } catch (e) {
-          console.error("[GeminiService] Failed to parse JSON fragment:", fragment, e);
-          return null;
-        }
-      }
+      let jsonCandidate = cleaned.substring(startIdx, endIdx + 1);
       
-      const jsonCandidate = cleaned.substring(startIdx, endIdx + 1);
-      const sanitized = jsonCandidate.replace(/,\s*([\]}])/g, '$1');
-      return JSON.parse(sanitized);
+      // Attempt to parse directly first
+      try {
+          return JSON.parse(jsonCandidate);
+      } catch (e) {
+          // If failed, apply aggressive sanitization
+          // 1. Remove literal newlines/returns which are invalid in JSON strings
+          jsonCandidate = jsonCandidate.replace(/[\r\n]+/g, ' ');
+          // 2. Fix trailing commas
+          jsonCandidate = jsonCandidate.replace(/,\s*([\]}])/g, '$1');
+          return JSON.parse(jsonCandidate);
+      }
     } catch (e) {
       console.error("[GeminiService] JSON extraction failed. Raw text:", text, e);
       return null;
