@@ -54,10 +54,16 @@ export interface SyncData {
   missions?: KnowledgeMission[];
 }
 
+export interface HowToGuide {
+  avoidPhrase?: string;
+  staffPhrase?: string;
+  steps: string[];
+}
+
 export interface ImprovementItem {
   category: string;
   action: string;
-  howTo: string;
+  howTo: HowToGuide | string;
   whyItMatters: string;
   effort: 'Low' | 'Medium' | 'High';
   impact: 'Low' | 'Medium' | 'High';
@@ -71,6 +77,11 @@ export interface CommunicationAnalysis {
   structureScore: number;
   overallAssessment: 'Strong' | 'Average' | 'Needs Work';
   summary: string;
+  openingAnalysis?: {
+    score: number;
+    label: string;
+    note: string;
+  };
 }
 
 export interface TranscriptAnnotation {
@@ -79,6 +90,7 @@ export interface TranscriptAnnotation {
   feedback?: string;
   whyItMatters?: string;
   uid?: string;
+  interviewerReaction?: string;
 }
 
 export interface GoldenPathStep {
@@ -93,10 +105,12 @@ export interface UserLogicStep {
   step: string;
   isAligned: boolean;
   staffPivot?: string;
+  estimatedTimePercent?: number;
 }
 
 export interface InterviewResult {
   id?: string; // Optional ID for reference
+  timestamp?: number; // Added: Timestamp of the interview
   question: string; // The question asked
   xpAwarded: number; // XP earned for this session
   overallScore: number;
@@ -122,11 +136,15 @@ export interface InterviewResult {
   communicationAnalysis: CommunicationAnalysis;
   benchmarkResponse: string;
   scoreBreakdown?: SessionScoreBreakdown;
+  barRaiserVerdict?: {
+    verdict: string;
+    rationale: string;
+  };
 }
 
 export interface HistoryItem {
   id: string;
-  activityType: 'INTERVIEW' | 'MISSION';
+  activityType: 'INTERVIEW' | 'MISSION' | 'PRACTICE';
   timestamp: number;
   questionTitle?: string;
   type?: InterviewType;
@@ -135,6 +153,8 @@ export interface HistoryItem {
   xpAwarded?: number;
   url?: string;
   targetedSkill?: string;
+  practiceCategory?: string;
+  practiceSuccess?: boolean;
 }
 
 export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input' | 'practice-delta';

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep, UserLogicStep, InterviewType } from '../types.ts';
+import { InterviewResult, ImprovementItem, CommunicationAnalysis, TranscriptAnnotation, GoldenPathStep, UserLogicStep, InterviewType, HowToGuide, AggregatedWeaknessProfile, HistoryItem } from '../types.ts';
 import { RUBRIC_DEFINITIONS } from '../constants.tsx';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,8 +18,17 @@ import {
   ChevronUp,
   Award,
   Info,
-  X
+  X,
+  Eye,
+  Repeat
 } from 'lucide-react';
+
+const COMMUNICATION_KEYWORDS: Record<string, string[]> = {
+  clarity: ["clear", "confus", "follow", "vague", "explicit"],
+  executiveFraming: ["BLUF", "bottom line", "lead with", "framing", "headline"],
+  structure: ["framework", "MECE", "structure", "transition", "first", "second"],
+  specificity: ["specific", "quantif", "data", "percent", "number", "generic"],
+};
 
 interface FeedbackViewProps {
   result: InterviewResult;
@@ -27,6 +36,9 @@ interface FeedbackViewProps {
   onPracticeDelta: (item: ImprovementItem) => void;
   isProductSense: boolean;
   question?: string; // Added: Fallback question context for legacy data
+  priorRubricAverages?: Record<string, number | undefined>;
+  weaknessProfile?: AggregatedWeaknessProfile;
+  practiceHistory?: HistoryItem[];
 }
 
 const ImpactBadge: React.FC<{ level: string }> = ({ level }) => {
@@ -35,8 +47,8 @@ const ImpactBadge: React.FC<{ level: string }> = ({ level }) => {
   return <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${colorClass}`}>{level} Impact</span>;
 };
 
-const AnnotationSpan = React.forwardRef<HTMLSpanElement, { annotation: TranscriptAnnotation; isActive?: boolean; onClick?: () => void }>(
-  ({ annotation, isActive, onClick }, ref) => {
+const AnnotationSpan = React.forwardRef<HTMLSpanElement, { annotation: TranscriptAnnotation; isActive?: boolean; isDimmed?: boolean; isFiltered?: boolean; onClick?: () => void }>(
+  ({ annotation, isActive, isDimmed, isFiltered, onClick }, ref) => {
     const styles = { 
       strength: 'bg-emerald-100/50 border-b-2 border-emerald-500 text-emerald-900 cursor-pointer', 
       weakness: 'bg-rose-100/50 border-b-2 border-rose-500 text-rose-900 cursor-pointer', 
@@ -46,16 +58,20 @@ const AnnotationSpan = React.forwardRef<HTMLSpanElement, { annotation: Transcrip
 
     const activeStyles = isActive 
       ? 'ring-4 ring-indigo-500/40 bg-indigo-50/90 scale-[1.05] z-20 shadow-xl border-indigo-500 !border-b-4' 
-      : 'hover:scale-[1.02] hover:z-10';
+      : isFiltered
+        ? 'ring-2 ring-indigo-400 z-10'
+        : 'hover:scale-[1.02] hover:z-10';
 
-    if (annotation.type === 'neutral') return <span className="text-slate-500">{annotation.text} </span>;
+    const dimStyles = isDimmed ? 'opacity-30' : '';
+
+    if (annotation.type === 'neutral') return <span className={`text-slate-500 ${dimStyles}`}>{annotation.text} </span>;
 
     return (
       <motion.span 
         ref={ref}
         onClick={onClick}
         layoutId={annotation.uid}
-        className={`relative inline-block px-1 py-0.5 transition-all mx-0.5 rounded-md border-b-2 font-bold ${styles[annotation.type]} ${activeStyles}`} 
+        className={`relative inline-block px-1 py-0.5 transition-all mx-0.5 rounded-md border-b-2 font-bold ${styles[annotation.type]} ${activeStyles} ${dimStyles}`} 
       >
         {annotation.text}
         {isActive && (
@@ -100,59 +116,70 @@ const BenchmarkScript: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-const HowToRenderer: React.FC<{ text: string }> = ({ text }) => {
-  // Enhanced renderer to highlight comparisons and steps
-  const lines = text.split('\n');
+const HowToGuideRenderer: React.FC<{ guide: HowToGuide | string }> = ({ guide }) => {
+  // Backward compatibility for legacy string data
+  if (typeof guide === 'string') {
+    return (
+      <div className="space-y-6">
+        <p className="text-[13px] text-slate-700 leading-relaxed font-bold">
+          {guide}
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      {lines.map((line, idx) => {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) return null;
-        
-        // Check for PHRASING comparison
-        if (trimmedLine.includes('PHRASING:') || (trimmedLine.includes('Instead of') && trimmedLine.includes('say'))) {
-          return (
-            <div key={idx} className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm mt-2">
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
-                <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Staff Phrasing Audit</p>
+    <div className="space-y-8">
+      {/* Comparison Block */}
+      {(guide.avoidPhrase || guide.staffPhrase) && (
+        <div className="bg-white p-8 rounded-[2.5rem] border border-indigo-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+          <div className="space-y-6 relative z-10">
+            {guide.avoidPhrase && (
+              <div className="flex flex-col space-y-2">
+                <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-2">
+                  <XCircle className="w-3 h-3" />
+                  Avoid
+                </span>
+                <p className="text-[13px] text-slate-400 font-medium line-through decoration-rose-300/50 decoration-2 italic leading-relaxed pl-5 border-l-2 border-rose-100">
+                  "{guide.avoidPhrase}"
+                </p>
               </div>
-              <div className="flex flex-col space-y-3">
-                <div className="flex items-start space-x-3">
-                  <span className="text-rose-500 font-black text-[10px] mt-1 uppercase tracking-tighter shrink-0">Avoid:</span>
-                  <span className="text-slate-400 text-[12px] font-medium line-through decoration-rose-500/30 italic leading-relaxed">
-                    {trimmedLine.split(/Instead of|say/i)[1]?.trim() || trimmedLine}
-                  </span>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <span className="text-emerald-600 font-black text-[10px] mt-1 uppercase tracking-tighter shrink-0">Staff:</span>
-                  <span className="text-indigo-900 text-[13px] font-black leading-relaxed">
-                    {trimmedLine.split(/say/i)[1]?.trim() || 'Speak with more precision.'}
-                  </span>
-                </div>
+            )}
+            
+            {guide.staffPhrase && (
+              <div className="flex flex-col space-y-2">
+                <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Staff Standard
+                </span>
+                <p className="text-[14px] text-indigo-900 font-black leading-relaxed pl-5 border-l-2 border-emerald-500/30 bg-emerald-50/50 py-2 rounded-r-xl">
+                  "{guide.staffPhrase}"
+                </p>
               </div>
-            </div>
-          );
-        }
+            )}
+          </div>
+        </div>
+      )}
 
-        // Check for numbered steps
-        if (/^\d+\./.test(trimmedLine)) {
-          return (
-            <div key={idx} className="flex items-start space-x-4">
-              <span className="text-indigo-500 font-black text-sm mt-0.5">{trimmedLine.split('.')[0]}.</span>
-              <p className="text-[12px] text-slate-700 leading-relaxed font-bold">
-                {trimmedLine.replace(/^\d+\.\s*/, '')}
-              </p>
+      {/* Steps List */}
+      <div className="space-y-4">
+        {guide.steps.map((step, idx) => (
+          <div key={idx} className="flex items-start gap-4 group">
+            <div className="flex flex-col items-center gap-1 shrink-0 mt-1">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-black border border-indigo-100 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
+                {idx + 1}
+              </span>
+              {idx < guide.steps.length - 1 && (
+                <div className="w-px h-6 bg-indigo-100 group-hover:bg-indigo-200 transition-colors"></div>
+              )}
             </div>
-          );
-        }
-
-        return (
-          <p key={idx} className="text-[12px] text-slate-700 leading-relaxed font-bold">
-            {trimmedLine}
-          </p>
-        );
-      })}
+            <p className="text-[13px] text-slate-700 leading-relaxed font-bold pt-0.5">
+              {step}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -389,7 +416,11 @@ const LogicFlowchart: React.FC<{ userPath: UserLogicStep[]; goldenPath: GoldenPa
   );
 };
 
-const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
+const RedlineView: React.FC<{ 
+  result: InterviewResult; 
+  activeCommunicationFilter: string | null;
+  onClearFilter: () => void;
+}> = ({ result, activeCommunicationFilter, onClearFilter }) => {
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [expandedWhyUids, setExpandedWhyUids] = useState<Set<string>>(new Set());
   const annotationRefs = React.useRef<Map<string, HTMLSpanElement>>(new Map());
@@ -429,6 +460,7 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
       return;
     }
     setSelectedUid(uid);
+    onClearFilter(); // Clear filter when selecting an annotation
     // Delay slightly to allow any layout shifts
     requestAnimationFrame(() => {
       const element = annotationRefs.current.get(uid);
@@ -436,6 +468,13 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     });
+  };
+
+  const checkFilterMatch = (annotation: TranscriptAnnotation) => {
+    if (!activeCommunicationFilter) return false;
+    const keywords = COMMUNICATION_KEYWORDS[activeCommunicationFilter];
+    if (!keywords || !annotation.feedback) return false;
+    return keywords.some(kw => annotation.feedback!.toLowerCase().includes(kw.toLowerCase()));
   };
 
   const weaknesses = useMemo(() => {
@@ -473,6 +512,18 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
             <p className="text-sm font-medium leading-relaxed text-slate-200">"{annotation.text}"</p>
             <p className="mt-3 text-[13px] text-slate-400 leading-relaxed">{critiqueText}</p>
           </div>
+
+          {annotation.interviewerReaction && (
+            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl relative">
+              <div className="flex items-center gap-2 mb-2">
+                <Eye className="w-3 h-3 text-indigo-500" />
+                <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Interviewer Reaction</span>
+              </div>
+              <p className="text-[13px] text-indigo-700 italic font-medium leading-relaxed">
+                "{annotation.interviewerReaction}"
+              </p>
+            </div>
+          )}
 
           {rewriteText && (
             <div className="pt-6 border-t border-white/10">
@@ -552,17 +603,24 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
               <div className="h-px flex-1 bg-slate-100"></div>
             </div>
             <div className="text-[15px] leading-[1.8] font-medium text-slate-800 font-serif">
-              {annotatedVision.map((a) => (
-                <AnnotationSpan 
-                  key={a.uid} 
-                  ref={(el) => {
-                    if (el) annotationRefs.current.set(a.uid, el);
-                  }}
-                  annotation={a} 
-                  isActive={selectedUid === a.uid} 
-                  onClick={() => handleSelectAnnotation(a.uid)}
-                />
-              ))}
+              {annotatedVision.map((a) => {
+                const isMatch = checkFilterMatch(a);
+                const isDimmed = activeCommunicationFilter ? !isMatch : false;
+                
+                return (
+                  <AnnotationSpan 
+                    key={a.uid} 
+                    ref={(el) => {
+                      if (el) annotationRefs.current.set(a.uid, el);
+                    }}
+                    annotation={a} 
+                    isActive={selectedUid === a.uid} 
+                    isDimmed={isDimmed}
+                    isFiltered={isMatch}
+                    onClick={() => handleSelectAnnotation(a.uid)}
+                  />
+                );
+              })}
             </div>
           </div>
 
@@ -572,17 +630,24 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
               <div className="h-px flex-1 bg-slate-100"></div>
             </div>
             <div className="text-[15px] leading-[1.8] font-medium text-slate-800 font-serif">
-              {annotatedDefense.map((a) => (
-                <AnnotationSpan 
-                  key={a.uid} 
-                  ref={(el) => {
-                    if (el) annotationRefs.current.set(a.uid, el);
-                  }}
-                  annotation={a} 
-                  isActive={selectedUid === a.uid} 
-                  onClick={() => handleSelectAnnotation(a.uid)}
-                />
-              ))}
+              {annotatedDefense.map((a) => {
+                const isMatch = checkFilterMatch(a);
+                const isDimmed = activeCommunicationFilter ? !isMatch : false;
+
+                return (
+                  <AnnotationSpan 
+                    key={a.uid} 
+                    ref={(el) => {
+                      if (el) annotationRefs.current.set(a.uid, el);
+                    }}
+                    annotation={a} 
+                    isActive={selectedUid === a.uid} 
+                    isDimmed={isDimmed}
+                    isFiltered={isMatch}
+                    onClick={() => handleSelectAnnotation(a.uid)}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
@@ -626,6 +691,12 @@ const RedlineView: React.FC<{ result: InterviewResult }> = ({ result }) => {
                   <p className="text-[13px] font-black text-slate-900 mb-3 leading-tight relative z-10">"{w.text}"</p>
                   <p className="text-[12px] text-slate-600 font-medium leading-relaxed line-clamp-2 mb-4 relative z-10">{w.feedback?.split('REWRITE:')[0]}</p>
                   
+                  {w.interviewerReaction && (
+                    <p className="text-[11px] text-slate-500 italic mb-4 relative z-10">
+                      "{w.interviewerReaction}"
+                    </p>
+                  )}
+
                   {w.whyItMatters && (
                     <div 
                       onClick={(e) => toggleWhy(w.uid, e)}
@@ -791,15 +862,177 @@ const RubricDetailModal: React.FC<{
   );
 };
 
-export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onPracticeDelta, isProductSense, question }) => {
+const SessionSummaryCard: React.FC<{ result: InterviewResult }> = ({ result }) => {
+  const oneFix = useMemo(() => {
+    if (!result.improvementItems || result.improvementItems.length === 0) return null;
+    const highImpactItems = result.improvementItems.filter(i => i.impact === 'High');
+    if (highImpactItems.length === 0) return result.improvementItems[0];
+    
+    return [...highImpactItems].sort((a, b) => {
+      const scoreA = result.rubricScores.find(r => r.category === a.category)?.score || 100;
+      const scoreB = result.rubricScores.find(r => r.category === b.category)?.score || 100;
+      return scoreA - scoreB;
+    })[0];
+  }, [result.improvementItems, result.rubricScores]);
+
+  const strongestMoment = useMemo(() => {
+    if (!result.rubricScores || result.rubricScores.length === 0) return null;
+    return [...result.rubricScores].sort((a, b) => b.score - a.score)[0];
+  }, [result.rubricScores]);
+
+  const strongestLabel = strongestMoment 
+    ? (strongestMoment.score >= 80 ? 'Staff Signal' : strongestMoment.score >= 60 ? 'Senior Signal' : 'Signal') 
+    : '';
+
+  const levelGap = result.scoreBreakdown?.pmLevel;
+  const gap = levelGap?.gapToNextLevel || 0;
+  const nextLevel = levelGap?.label === 'Associate' ? 'Mid-level' :
+                    levelGap?.label === 'Mid-level' ? 'Senior' :
+                    levelGap?.label === 'Senior' ? 'Staff' : 'Next Level';
+
+  const scrollToActions = () => {
+    const el = document.getElementById('growth-opportunities');
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  return (
+    <div className="bg-slate-900 rounded-[3rem] p-8 border border-white/5 shadow-2xl relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_20%_50%,rgba(99,102,241,0.08),transparent)] pointer-events-none"></div>
+      
+      <div className="flex flex-col lg:flex-row gap-8 relative z-10 items-stretch">
+        {/* Column 1: The One Fix */}
+        <div className="flex-[1.5] flex flex-col justify-between space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">The One Fix</span>
+            {oneFix && (
+              <span className="px-2 py-0.5 rounded text-[8px] font-bold uppercase border bg-indigo-500/20 text-indigo-300 border-indigo-500/30">
+                {oneFix.category}
+              </span>
+            )}
+          </div>
+          <button onClick={scrollToActions} className="text-left group">
+            <h3 className="text-xl font-black text-white leading-tight group-hover:text-indigo-400 transition-colors line-clamp-2">
+              {oneFix?.action || "Review detailed feedback below."}
+            </h3>
+          </button>
+          <p className="text-[11px] text-slate-400 font-bold">
+            Lowest score among high-impact levers.
+          </p>
+        </div>
+
+        <div className="hidden lg:block w-px bg-white/10 my-2"></div>
+
+        {/* Column 2: Strongest Moment */}
+        <div className="flex-1 flex flex-col justify-between space-y-2">
+          <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Strongest Moment</span>
+          <div className="flex items-baseline gap-3">
+            <h3 className="text-xl font-black text-white truncate">
+              {strongestMoment?.category || "N/A"}
+            </h3>
+            <span className="text-2xl font-black text-emerald-400">{strongestMoment?.score}</span>
+          </div>
+          <p className="text-[11px] text-slate-400 font-bold">
+            {strongestLabel}
+          </p>
+        </div>
+
+        <div className="hidden lg:block w-px bg-white/10 my-2"></div>
+
+        {/* Column 3: Level Gap or Bar Raiser Verdict */}
+        <div className="flex-1 flex flex-col justify-between space-y-2">
+          {result.barRaiserVerdict ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Bar Raiser Verdict</span>
+                <div className="group/tooltip relative">
+                  <Info className="w-3 h-3 text-slate-500 cursor-help" />
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-20">
+                    This reflects answer quality, not an actual hiring decision.
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <span className={`inline-block px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest border shadow-lg ${
+                  result.barRaiserVerdict.verdict === 'Bar Raise' ? 'bg-indigo-600 text-white border-indigo-500' :
+                  result.barRaiserVerdict.verdict === 'Strong Hire' ? 'bg-emerald-600 text-white border-emerald-500' :
+                  result.barRaiserVerdict.verdict === 'Hire' ? 'bg-emerald-500 text-white border-emerald-400' :
+                  result.barRaiserVerdict.verdict === 'No Hire' ? 'bg-amber-600 text-white border-amber-500' :
+                  'bg-rose-600 text-white border-rose-500'
+                }`}>
+                  {result.barRaiserVerdict.verdict}
+                </span>
+              </div>
+              
+              <p className="text-[11px] text-slate-400 font-medium italic leading-tight line-clamp-2">
+                "{result.barRaiserVerdict.rationale}"
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">Level Gap</span>
+              <h3 className="text-xl font-black text-white">
+                {levelGap?.label || "N/A"}
+              </h3>
+              <p className="text-[11px] text-slate-400 font-bold leading-tight">
+                {gap > 0 
+                  ? `You are ${gap} pts from ${nextLevel}`
+                  : (levelGap?.label === 'Staff' || gap === 0)
+                    ? "Operating at Staff level this session."
+                    : "Gap analysis unavailable."
+                }
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Jump Button */}
+        <div className="flex items-center pl-4 border-l border-white/5">
+           <button 
+             onClick={scrollToActions} 
+             className="bg-indigo-600 hover:bg-indigo-500 text-white p-4 rounded-2xl transition-all shadow-lg hover:scale-105 active:scale-95 group"
+             aria-label="Jump to Actions"
+           >
+             <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onPracticeDelta, isProductSense, question, priorRubricAverages, weaknessProfile, practiceHistory }) => {
   const [showBenchmarkScript, setShowBenchmarkScript] = useState(false);
   const [expandedRubric, setExpandedRubric] = useState<number | null>(null);
   const [selectedRubricIndex, setSelectedRubricIndex] = useState<number | null>(null);
+  const [activeCommunicationFilter, setActiveCommunicationFilter] = useState<string | null>(null);
   const lastValidRubricIndex = React.useRef<number | null>(null);
 
   // Lazy Script Generation State
   const [generatingScripts, setGeneratingScripts] = useState(false);
   const [generatedScripts, setGeneratedScripts] = useState<Record<number, string>>({});
+
+  const priorityItemIndex = useMemo(() => {
+    if (!result.improvementItems?.length) return 0;
+    const itemsWithScores = result.improvementItems.map((item, index) => {
+      const rubric = result.rubricScores.find(r => r.category === item.category);
+      return { index, item, score: rubric ? rubric.score : 100 };
+    });
+    const highImpact = itemsWithScores.filter(x => x.item.impact === 'High');
+    if (highImpact.length === 0) return 0;
+    return highImpact.sort((a, b) => a.score - b.score)[0].index;
+  }, [result.improvementItems, result.rubricScores]);
+
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(() => new Set([priorityItemIndex]));
+
+  const toggleItemExpansion = (index: number) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
 
   const handleGenerateScripts = async () => {
     if (generatingScripts || !result.goldenPath) return;
@@ -883,6 +1116,17 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
 
   const [expandedStepIndex, setExpandedStepIndex] = useState<number | null>(null);
 
+  const logicStats = useMemo(() => {
+    const path = result.userLogicPath || [];
+    const hits = path.filter(step => step.isAligned).length;
+    const total = Math.max(path.length, 1);
+    return {
+      hits,
+      total,
+      completionRate: Math.round((hits / total) * 100)
+    };
+  }, [result.userLogicPath]);
+
   const commData = useMemo(() => [
     { category: 'Specificity', value: result.communicationAnalysis?.specificityScore || 0, full: 100 },
     { category: 'Clarity', value: result.communicationAnalysis?.clarityScore || 0, full: 100 },
@@ -894,6 +1138,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
 
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      <SessionSummaryCard result={result} />
       {/* EXECUTIVE SCOREBOARD */}
       <div className="bg-slate-900 rounded-[4rem] text-white shadow-2xl relative overflow-hidden border border-white/5">
         <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(circle_at_80%_20%,rgba(99,102,241,0.1),transparent)] pointer-events-none"></div>
@@ -909,7 +1154,7 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
               <h2 className="text-5xl lg:text-7xl font-black tracking-tighter leading-none">Strategic Mastery</h2>
             </div>
             
-            <div className="lg:col-span-3 flex items-center gap-6 bg-white/5 p-4 rounded-[2.5rem] border border-white/10 h-full relative">
+            <div className={`lg:col-span-3 bg-white/5 border border-white/10 rounded-[2.5rem] p-4 h-full relative flex flex-col ${result.scoreBreakdown?.penaltyApplied ? 'justify-start' : 'justify-center'}`}>
               {result.scoreBreakdown?.penaltyApplied && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20">
                   <span className="bg-rose-500 text-white text-[8px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg border border-rose-400 flex items-center gap-1 whitespace-nowrap">
@@ -919,49 +1164,89 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                 </div>
               )}
 
-              <div className="px-6 py-4 bg-indigo-600 rounded-[2rem] shadow-xl border border-indigo-500/30 flex flex-col items-center justify-center flex-1 min-w-[140px]">
-                <span className="text-[8px] font-black text-indigo-200 uppercase tracking-widest mb-1">Rating</span>
-                {result.scoreBreakdown ? (
-                  <>
-                    <span className="text-2xl font-black text-white leading-none mb-1 text-center">{result.scoreBreakdown.pmLevel.label}</span>
-                    <span className="text-sm font-bold text-indigo-200">{result.scoreBreakdown.overallScore}</span>
-                    {(result.scoreBreakdown.pmLevel.gapToNextLevel || 0) > 0 && (
-                       <span className="text-[9px] font-bold text-indigo-300 mt-2 bg-indigo-700/50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                         +{result.scoreBreakdown.pmLevel.gapToNextLevel} pts to {
-                           result.scoreBreakdown.pmLevel.label === 'Associate' ? 'Mid-level' :
-                           result.scoreBreakdown.pmLevel.label === 'Mid-level' ? 'Senior' :
-                           result.scoreBreakdown.pmLevel.label === 'Senior' ? 'Staff' : 'Next Level'
-                         }
-                       </span>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-3xl font-black">{result.overallScore}</span>
-                )}
-              </div>
-              
-              <div className="pr-4 flex flex-col justify-center">
-                {result.scoreBreakdown ? (
-                  <>
-                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Floor Risk</span>
-                    <span className={`text-2xl font-black ${
-                      result.scoreBreakdown.floorScore < 55 ? 'text-rose-400' :
-                      result.scoreBreakdown.floorScore < 70 ? 'text-amber-400' : 'text-emerald-400'
-                    }`}>
-                      {result.scoreBreakdown.floorScore}
-                    </span>
-                    <span className="text-[9px] font-bold text-slate-500 max-w-[100px] leading-tight mt-1 line-clamp-2">
-                      {result.scoreBreakdown.floorCategory}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Stability</span>
-                    <span className={`text-xl font-black ${result.defensivePivotScore >= 80 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {result.defensivePivotScore}%
-                    </span>
-                  </>
-                )}
+              {result.scoreBreakdown?.penaltyApplied && (
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 mb-2 mt-2">
+                  <h4 className="text-xs font-black text-rose-600 uppercase tracking-wide mb-1">Why your score was capped</h4>
+                  <p className="text-[10px] leading-relaxed text-rose-900 font-medium mb-2">
+                    Your <span className="font-bold">{result.scoreBreakdown.floorCategory}</span> score of <span className="font-bold">{result.scoreBreakdown.floorScore}</span> fell below the critical threshold of 40. When any single category scores below 40, your overall score is capped at 65 regardless of performance in other areas. This mirrors real bar-raiser dynamics: a critical gap in one dimension signals risk even when other areas are strong.
+                  </p>
+                  <p className="text-[10px] font-black text-rose-950">
+                    To unlock your full score, bring {result.scoreBreakdown.floorCategory} above 40.
+                  </p>
+                </div>
+              )}
+
+              <div className={`flex items-center gap-6 ${result.scoreBreakdown?.penaltyApplied ? 'flex-1 justify-center' : ''}`}>
+                <div className="px-6 py-4 bg-indigo-600 rounded-[2rem] shadow-xl border border-indigo-500/30 flex flex-col items-center justify-center flex-1 min-w-[140px]">
+                  <span className="text-[8px] font-black text-indigo-200 uppercase tracking-widest mb-1">Rating</span>
+                  {result.scoreBreakdown ? (
+                    <>
+                      <span className="text-2xl font-black text-white leading-none mb-1 text-center">{result.scoreBreakdown.pmLevel.label}</span>
+                      <span className="text-sm font-bold text-indigo-200">{result.scoreBreakdown.overallScore}</span>
+                      {(result.scoreBreakdown.pmLevel.gapToNextLevel || 0) > 0 && (
+                         <span className="text-[9px] font-bold text-indigo-300 mt-2 bg-indigo-700/50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                           +{result.scoreBreakdown.pmLevel.gapToNextLevel} pts to {
+                             result.scoreBreakdown.pmLevel.label === 'Associate' ? 'Mid-level' :
+                             result.scoreBreakdown.pmLevel.label === 'Mid-level' ? 'Senior' :
+                             result.scoreBreakdown.pmLevel.label === 'Senior' ? 'Staff' : 'Next Level'
+                           }
+                         </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-3xl font-black">{result.overallScore}</span>
+                  )}
+                </div>
+                
+                <div className="pr-4 flex flex-col justify-center">
+                  {result.scoreBreakdown ? (
+                    <>
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Floor Risk</span>
+                      <span className={`text-2xl font-black ${
+                        result.scoreBreakdown.floorScore < 55 ? 'text-rose-400' :
+                        result.scoreBreakdown.floorScore < 70 ? 'text-amber-400' : 'text-emerald-400'
+                      }`}>
+                        {result.scoreBreakdown.floorScore}
+                      </span>
+                      <span className="text-[9px] font-bold text-slate-500 max-w-[100px] leading-tight mt-1 line-clamp-2">
+                        {result.scoreBreakdown.floorCategory}
+                      </span>
+
+                      <div className="w-full h-px bg-slate-200/50 my-3"></div>
+                      
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Response Trajectory</span>
+                      
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-black text-indigo-500">{result.visionScore}</span>
+                        <ArrowRight className="w-3 h-3 text-slate-300" />
+                        <span className={`text-sm font-black ${
+                          result.defenseScore > result.visionScore + 5 ? 'text-emerald-500' :
+                          result.defenseScore < result.visionScore - 5 ? 'text-rose-500' :
+                          'text-slate-500'
+                        }`}>
+                          {result.defenseScore}
+                        </span>
+                      </div>
+
+                      <span className={`text-[9px] font-bold leading-tight max-w-[120px] ${
+                          result.defenseScore > result.visionScore + 5 ? 'text-emerald-600' :
+                          result.defenseScore < result.visionScore - 5 ? 'text-rose-600' :
+                          'text-slate-500'
+                      }`}>
+                        {result.defenseScore > result.visionScore + 5 ? "You rose under pressure — strong signal." :
+                         result.defenseScore < result.visionScore - 5 ? "Pressure exposed a gap — defense needs work." :
+                         "Consistent across both rounds."}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Stability</span>
+                      <span className={`text-xl font-black ${result.defensivePivotScore >= 80 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {result.defensivePivotScore}%
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -994,10 +1279,70 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                   </div>
                   <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">The Framework Gap</span>
                 </div>
-                <div className="px-3 py-1 bg-rose-500/10 rounded-full border border-rose-500/20">
-                  <span className="text-[8px] font-black text-rose-400 uppercase tracking-widest">Logic Delta</span>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <span className="block text-[8px] font-black text-slate-500 uppercase tracking-widest">Logic Integrity</span>
+                    <span className="block text-[10px] font-black text-white">{logicStats.hits}/{logicStats.total} Aligned</span>
+                  </div>
+                  <div className="relative w-10 h-10">
+                    <svg className="w-full h-full transform -rotate-90">
+                      <circle cx="20" cy="20" r="16" stroke="currentColor" strokeWidth="3" fill="transparent" className="text-white/10" />
+                      <motion.circle 
+                        initial={{ strokeDashoffset: 100.5 }}
+                        animate={{ strokeDashoffset: 100.5 * (1 - logicStats.completionRate / 100) }}
+                        transition={{ duration: 1.5, ease: "easeOut" }}
+                        cx="20" cy="20" r="16" stroke="currentColor" strokeWidth="3" fill="transparent" strokeDasharray={100.5} className="text-indigo-500" 
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-[9px] font-black text-white">{logicStats.completionRate}%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Time Distribution Visualization */}
+              {(() => {
+                const path = result.userLogicPath || [];
+                const totalTime = path.reduce((acc, step) => acc + (step.estimatedTimePercent || 0), 0);
+                const hasTimeData = path.length > 0 && path.every(step => step.estimatedTimePercent !== undefined) && totalTime >= 85 && totalTime <= 115;
+
+                if (!hasTimeData) return null;
+
+                // Benchmarks (Midpoints)
+                const benchmarks = isProductSense 
+                  ? [17.5, 22.5, 17.5, 27.5, 17.5] 
+                  : [20, 25, 20, 20, 15];
+                
+                let cum = 0;
+                const boundaries = benchmarks.map(b => { cum += b; return cum; }).slice(0, -1);
+
+                return (
+                  <div className="w-full space-y-2 pt-2 border-t border-white/5">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Time Distribution</span>
+                    <div className="relative w-full h-3 bg-slate-800 rounded-full overflow-hidden flex">
+                      {path.map((step, i) => (
+                        <div 
+                          key={i}
+                          className={`h-full ${step.isAligned ? 'bg-emerald-500' : 'bg-rose-400'} relative group/segment`}
+                          style={{ width: `${(step.estimatedTimePercent! / totalTime) * 100}%` }}
+                          title={`${step.step}: ${step.estimatedTimePercent}%`}
+                        >
+                        </div>
+                      ))}
+                      
+                      {/* Benchmark Dividers */}
+                      {boundaries.map((b, i) => (
+                        <div 
+                          key={i}
+                          className="absolute top-0 bottom-0 w-px border-l border-dotted border-white/60 pointer-events-none"
+                          style={{ left: `${b}%` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Actionable Summary at the Top */}
               <div className="bg-indigo-500/10 p-6 rounded-[2rem] border border-indigo-500/20 relative overflow-hidden">
@@ -1114,6 +1459,12 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                   )}
                 </div>
               </div>
+
+              <div className="pt-4 border-t border-white/5">
+                <p className="text-[11px] text-slate-500 italic font-medium leading-relaxed">
+                  <span className="text-indigo-400 font-bold not-italic">Staff Secret:</span> Staff PMs spend 40% of their time on the first 2 steps. If you jump to "Features" before "Goal Definition", you've already lost the room.
+                </p>
+              </div>
             </div>
 
             {/* Column 2: Communication Profile */}
@@ -1149,24 +1500,78 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
 
               <div className="pt-6 border-t border-white/5 flex items-center justify-between">
                 <div className="flex flex-col">
-                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Clarity</span>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500" style={{ width: `${result.communicationAnalysis?.clarityScore}%` }}></div>
+                  <button 
+                    onClick={() => setActiveCommunicationFilter(activeCommunicationFilter === 'clarity' ? null : 'clarity')}
+                    className={`text-left transition-all ${activeCommunicationFilter === 'clarity' ? 'opacity-100 scale-105' : activeCommunicationFilter ? 'opacity-40' : 'opacity-100 hover:opacity-80'}`}
+                  >
+                    <span className={`text-[8px] font-black uppercase tracking-widest mb-1 block ${activeCommunicationFilter === 'clarity' ? 'text-indigo-400' : 'text-slate-500'}`}>Clarity</span>
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-16 h-1.5 rounded-full overflow-hidden ${activeCommunicationFilter === 'clarity' ? 'bg-indigo-900' : 'bg-slate-800'}`}>
+                        <div className="h-full bg-indigo-500" style={{ width: `${result.communicationAnalysis?.clarityScore}%` }}></div>
+                      </div>
+                      <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.clarityScore}%</span>
                     </div>
-                    <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.clarityScore}%</span>
-                  </div>
+                  </button>
                 </div>
                 <div className="flex flex-col items-end">
-                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Exec Framing</span>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.executiveFramingScore}%</span>
-                    <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-500" style={{ width: `${result.communicationAnalysis?.executiveFramingScore}%` }}></div>
+                  <button 
+                    onClick={() => setActiveCommunicationFilter(activeCommunicationFilter === 'executiveFraming' ? null : 'executiveFraming')}
+                    className={`text-right transition-all ${activeCommunicationFilter === 'executiveFraming' ? 'opacity-100 scale-105' : activeCommunicationFilter ? 'opacity-40' : 'opacity-100 hover:opacity-80'}`}
+                  >
+                    <span className={`text-[8px] font-black uppercase tracking-widest mb-1 block ${activeCommunicationFilter === 'executiveFraming' ? 'text-emerald-400' : 'text-slate-500'}`}>Exec Framing</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.executiveFramingScore}%</span>
+                      <div className={`w-16 h-1.5 rounded-full overflow-hidden ${activeCommunicationFilter === 'executiveFraming' ? 'bg-emerald-900' : 'bg-slate-800'}`}>
+                        <div className="h-full bg-emerald-500" style={{ width: `${result.communicationAnalysis?.executiveFramingScore}%` }}></div>
+                      </div>
                     </div>
-                  </div>
+                  </button>
                 </div>
               </div>
+
+              {/* Second Row of Comm Scores (Structure & Specificity) - Added to match the 4 dimensions */}
+              <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <button 
+                    onClick={() => setActiveCommunicationFilter(activeCommunicationFilter === 'structure' ? null : 'structure')}
+                    className={`text-left transition-all ${activeCommunicationFilter === 'structure' ? 'opacity-100 scale-105' : activeCommunicationFilter ? 'opacity-40' : 'opacity-100 hover:opacity-80'}`}
+                  >
+                    <span className={`text-[8px] font-black uppercase tracking-widest mb-1 block ${activeCommunicationFilter === 'structure' ? 'text-amber-400' : 'text-slate-500'}`}>Structure</span>
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-16 h-1.5 rounded-full overflow-hidden ${activeCommunicationFilter === 'structure' ? 'bg-amber-900' : 'bg-slate-800'}`}>
+                        <div className="h-full bg-amber-500" style={{ width: `${result.communicationAnalysis?.structureScore}%` }}></div>
+                      </div>
+                      <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.structureScore}%</span>
+                    </div>
+                  </button>
+                </div>
+                <div className="flex flex-col items-end">
+                  <button 
+                    onClick={() => setActiveCommunicationFilter(activeCommunicationFilter === 'specificity' ? null : 'specificity')}
+                    className={`text-right transition-all ${activeCommunicationFilter === 'specificity' ? 'opacity-100 scale-105' : activeCommunicationFilter ? 'opacity-40' : 'opacity-100 hover:opacity-80'}`}
+                  >
+                    <span className={`text-[8px] font-black uppercase tracking-widest mb-1 block ${activeCommunicationFilter === 'specificity' ? 'text-rose-400' : 'text-slate-500'}`}>Specificity</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-black text-white">{result.communicationAnalysis?.specificityScore}%</span>
+                      <div className={`w-16 h-1.5 rounded-full overflow-hidden ${activeCommunicationFilter === 'specificity' ? 'bg-rose-900' : 'bg-slate-800'}`}>
+                        <div className="h-full bg-rose-500" style={{ width: `${result.communicationAnalysis?.specificityScore}%` }}></div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {activeCommunicationFilter && (
+                <div className="pt-4 border-t border-white/5 flex justify-center">
+                  <button 
+                    onClick={() => setActiveCommunicationFilter(null)}
+                    className="text-[10px] text-indigo-200 bg-indigo-500/20 px-3 py-1 rounded-full hover:bg-indigo-500/30 transition-colors flex items-center gap-2"
+                  >
+                    <span>Filtering by: <span className="font-black uppercase">{activeCommunicationFilter}</span></span>
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
 
               <div className="pt-4 border-t border-white/5">
                 <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-2">Hedging Language Detected</span>
@@ -1184,6 +1589,35 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                   </span>
                 )}
               </div>
+
+              {result.communicationAnalysis?.openingAnalysis && (
+                <div className="pt-4 border-t border-white/5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Opening Signal</span>
+                    <div className="flex items-center space-x-1 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                      <span className="text-[9px] font-black text-slate-400">Score</span>
+                      <span className={`text-[9px] font-black ${
+                        result.communicationAnalysis.openingAnalysis.score >= 80 ? 'text-emerald-400' :
+                        result.communicationAnalysis.openingAnalysis.score >= 60 ? 'text-amber-400' :
+                        'text-rose-400'
+                      }`}>{result.communicationAnalysis.openingAnalysis.score}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-col gap-2">
+                    <span className={`self-start px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest border ${
+                      result.communicationAnalysis.openingAnalysis.label === 'Strong BLUF' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                      result.communicationAnalysis.openingAnalysis.label === 'Average' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                      'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                    }`}>
+                      {result.communicationAnalysis.openingAnalysis.label}
+                    </span>
+                    <p className="text-[11px] text-slate-400 font-medium leading-relaxed italic">
+                      "{result.communicationAnalysis.openingAnalysis.note}"
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
           </div>
@@ -1194,6 +1628,13 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
       <div className="flex flex-col gap-6">
          {result.rubricScores?.map((r, i) => {
            const standard = RUBRIC_DEFINITIONS[r.category] || RUBRIC_DEFINITIONS[Object.keys(RUBRIC_DEFINITIONS).find(k => r.category.includes(k)) || ''];
+           const priorAvg = priorRubricAverages?.[r.category];
+           const delta = priorAvg !== undefined ? r.score - priorAvg : null;
+
+           // Weakness Pattern Logic
+           const weakness = weaknessProfile?.topWeaknesses.find(w => w.category.toLowerCase() === r.category.toLowerCase());
+           const showWeaknessWarning = r.score < 65 && weakness && weakness.sessionCount >= 2;
+           const isCriticalRegression = showWeaknessWarning && weakness!.sessionCount >= 3 && weakness!.trend === 'regressing';
 
            return (
              <div key={i}>
@@ -1204,9 +1645,25 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                   <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-indigo-500/10 transition-colors"></div>
                   
                   <div className="flex items-start justify-between relative z-10">
-                    <div className="flex flex-col items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-xl shrink-0 group-hover:scale-110 transition-transform">
+                    <div className="flex flex-col items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-xl shrink-0 group-hover:scale-110 transition-transform relative">
                        <span className={`text-xl font-black ${r.score >= 80 ? 'text-emerald-400' : r.score >= 60 ? 'text-amber-400' : 'text-rose-400'}`}>{r.score}</span>
                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Score</span>
+                       
+                       {/* Delta Badge */}
+                       {delta !== null && (
+                         <div className={`absolute -top-2 -right-2 px-2 py-0.5 rounded-full border shadow-sm flex items-center gap-0.5 ${
+                           delta >= 3 ? 'bg-emerald-100 border-emerald-200 text-emerald-700' :
+                           delta <= -3 ? 'bg-rose-100 border-rose-200 text-rose-700' :
+                           'bg-slate-100 border-slate-200 text-slate-600'
+                         }`}>
+                           {delta >= 3 ? <ArrowRight className="w-2 h-2 -rotate-90 stroke-[3]" /> :
+                            delta <= -3 ? <ArrowRight className="w-2 h-2 rotate-90 stroke-[3]" /> :
+                            null}
+                           <span className="text-[9px] font-black leading-none">
+                             {delta >= 3 ? `+${delta}` : delta <= -3 ? delta : '~'}
+                           </span>
+                         </div>
+                       )}
                     </div>
                     <div className="p-2 bg-slate-50 rounded-full text-slate-300 group-hover:text-indigo-500 group-hover:bg-indigo-50 transition-all">
                       <ArrowRight className="w-5 h-5" />
@@ -1217,6 +1674,29 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                      <h5 className="text-[12px] font-black text-indigo-500 uppercase tracking-[0.2em]">{r.category}</h5>
                      <p className="text-[15px] text-slate-800 font-bold leading-relaxed line-clamp-4">{r.reasoning}</p>
                   </div>
+
+                  {showWeaknessWarning && weakness && (
+                    <div className={`mt-4 p-3 rounded-xl border flex items-start gap-3 relative z-10 ${
+                      isCriticalRegression ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'
+                    }`}>
+                      <AlertCircle className={`w-3 h-3 shrink-0 mt-0.5 ${isCriticalRegression ? 'text-rose-500' : 'text-rose-400'}`} />
+                      <div className="space-y-1">
+                        {isCriticalRegression && (
+                          <p className="text-[10px] font-black text-rose-600 uppercase tracking-wide">Critical: This gap is getting worse over time.</p>
+                        )}
+                        <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                          Recurring across <span className="font-bold text-slate-700">{weakness.sessionCount} sessions</span> · Avg: {weakness.averageScore} · 
+                          <span className={`ml-1 font-bold uppercase tracking-wider text-[9px] ${
+                            weakness.trend === 'improving' ? 'text-emerald-500' : 
+                            weakness.trend === 'plateauing' ? 'text-amber-500' : 
+                            'text-rose-500'
+                          }`}>
+                            {weakness.trend}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="pt-8 border-t border-slate-100 mt-auto relative z-10 flex items-center justify-between">
                     <div className="flex items-center space-x-3">
@@ -1242,10 +1722,11 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
       />
 
       {/* REDLINE TRANSCRIPT */}
-      <RedlineView result={result} />
-
-      {/* LOGIC FLOWCHART */}
-      <LogicFlowchart userPath={result.userLogicPath} goldenPath={result.goldenPath} />
+      <RedlineView 
+        result={result} 
+        activeCommunicationFilter={activeCommunicationFilter}
+        onClearFilter={() => setActiveCommunicationFilter(null)}
+      />
 
       {/* BENCHMARK SECTION (GOLDEN PATH) */}
       <div className="bg-slate-900 p-10 rounded-[3.5rem] text-white space-y-12 shadow-2xl">
@@ -1379,58 +1860,123 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
       </div>
 
       {/* DELTA OPPORTUNITIES */}
-      <div className="space-y-10">
+      <div id="growth-opportunities" className="space-y-10">
         <div className="flex flex-col space-y-2">
           <h3 className="text-4xl font-black text-slate-900 tracking-tighter">Growth Opportunities</h3>
           <p className="text-slate-400 font-bold text-sm">High-impact adjustments to bridge the gap to Staff level.</p>
         </div>
         
         <div className="flex flex-col space-y-12">
-           {result.improvementItems?.map((item, i) => (
-             <div key={i} className="bg-white p-12 rounded-[4rem] border border-slate-100 shadow-sm hover:border-indigo-400 transition-all group relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none"></div>
+           {result.improvementItems?.map((item, i) => {
+             // Practice Tracking Logic
+             const itemPracticeHistory = practiceHistory?.filter(h => h.practiceCategory === item.category) || [];
+             const practiceCount = itemPracticeHistory.length;
+             const isMastered = itemPracticeHistory.some(h => h.practiceSuccess);
+             const isPersistentGap = practiceCount >= 3 && !isMastered;
+
+             const isPriority = i === priorityItemIndex;
+             const isExpanded = expandedItems.has(i);
+
+             return (
+             <div key={i} className={`bg-white rounded-[4rem] border shadow-sm transition-all group relative ${
+               isMastered ? 'border-emerald-200 hover:border-emerald-400' : 'border-slate-100 hover:border-indigo-400'
+             } ${isPriority ? 'ring-4 ring-indigo-500/30' : ''}`}>
                 
-                <div className="space-y-12 relative z-10">
-                  {/* Header Section */}
-                  <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+                {isPriority && (
+                  <div className="bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest py-3 text-center rounded-t-[4rem]">
+                    ★ This Week's Priority · Highest Impact
+                  </div>
+                )}
+
+                <div className={`p-12 relative overflow-hidden ${isPriority ? 'rounded-b-[4rem]' : 'rounded-[4rem]'}`}>
+                  <div className={`absolute top-0 right-0 w-64 h-64 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none ${
+                    isMastered ? 'bg-emerald-500/5' : 'bg-indigo-500/5'
+                  }`}></div>
+                  
+                  <div className="space-y-12 relative z-10">
+                    {/* Header Section */}
+                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
                     <div className="space-y-4 max-w-2xl">
-                      <span className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.3em] px-4 py-1.5 bg-indigo-50 rounded-full w-fit block border border-indigo-100">
-                        {item.category}
-                      </span>
-                      <h5 className="text-4xl font-black text-slate-900 leading-[1.1] tracking-tight group-hover:text-indigo-600 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.3em] px-4 py-1.5 bg-indigo-50 rounded-full w-fit block border border-indigo-100">
+                          {item.category}
+                        </span>
+                        
+                        {/* Practice Status Badges */}
+                        {isMastered ? (
+                          <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span className="text-[9px] font-black uppercase tracking-widest">Mastered</span>
+                          </span>
+                        ) : isPersistentGap ? (
+                          <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 rounded-full border border-amber-200">
+                            <AlertCircle className="w-3 h-3" />
+                            <span className="text-[9px] font-black uppercase tracking-widest">Practiced {practiceCount}x — Still a Gap</span>
+                          </span>
+                        ) : practiceCount > 0 ? (
+                          <span className="flex items-center gap-1.5 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full border border-indigo-200">
+                            <Repeat className="w-3 h-3" />
+                            <span className="text-[9px] font-black uppercase tracking-widest">Practiced {practiceCount}x</span>
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <h5 className={`text-4xl font-black leading-[1.1] tracking-tight transition-colors ${
+                        isMastered ? 'text-emerald-900 group-hover:text-emerald-700' : 'text-slate-900 group-hover:text-indigo-600'
+                      }`}>
                         {item.action}
                       </h5>
                     </div>
                     
-                    <div className="flex items-center gap-8 bg-slate-50 px-8 py-4 rounded-[2rem] border border-slate-100">
-                      <div className="flex flex-col items-center">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Impact</span>
-                        <span className={`text-sm font-black ${item.impact === 'High' ? 'text-indigo-600' : 'text-slate-600'}`}>
-                          {item.impact}
-                        </span>
+                    <div className="flex flex-col items-end gap-4">
+                      <div className="flex items-center gap-8 bg-slate-50 px-8 py-4 rounded-[2rem] border border-slate-100">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Impact</span>
+                          <span className={`text-sm font-black ${item.impact === 'High' ? 'text-indigo-600' : 'text-slate-600'}`}>
+                            {item.impact}
+                          </span>
+                        </div>
+                        <div className="w-px h-8 bg-slate-200"></div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Effort</span>
+                          <span className={`text-sm font-black ${item.effort === 'Low' ? 'text-emerald-500' : item.effort === 'Medium' ? 'text-amber-500' : 'text-rose-500'}`}>
+                            {item.effort}
+                          </span>
+                        </div>
                       </div>
-                      <div className="w-px h-8 bg-slate-200"></div>
-                      <div className="flex flex-col items-center">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Effort</span>
-                        <span className={`text-sm font-black ${item.effort === 'Low' ? 'text-emerald-500' : item.effort === 'Medium' ? 'text-amber-500' : 'text-rose-500'}`}>
-                          {item.effort}
-                        </span>
-                      </div>
+
+                      {!isExpanded && (
+                        <button 
+                          onClick={() => toggleItemExpansion(i)}
+                          className="text-[11px] font-black text-indigo-500 uppercase tracking-widest hover:text-indigo-600 transition-colors flex items-center gap-2"
+                        >
+                          See Guidance <ArrowRight className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {/* Content Grid */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+                  {/* Content Grid (Collapsible) */}
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: "easeInOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 pt-8 border-t border-slate-100">
                     {/* Strategic Rationale */}
                     <div className="lg:col-span-5 space-y-8">
                       <div className="space-y-6">
                         <div className="flex items-center space-x-3">
-                          <div className="w-1.5 h-6 bg-slate-900 rounded-full"></div>
-                          <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Strategic Rationale</p>
+                          <div className={`w-1.5 h-6 rounded-full ${isMastered ? 'bg-emerald-900' : 'bg-slate-900'}`}></div>
+                          <p className={`text-[11px] font-black uppercase tracking-[0.2em] ${isMastered ? 'text-emerald-900' : 'text-slate-900'}`}>Strategic Rationale</p>
                         </div>
-                        <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 relative">
-                          <svg className="absolute top-4 left-4 w-8 h-8 text-slate-200" fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21L14.017 18C14.017 16.8954 14.9124 16 16.017 16H19.017C19.5693 16 20.017 15.5523 20.017 15V9C20.017 8.44772 19.5693 8 19.017 8H16.017C14.9124 8 14.017 7.10457 14.017 6V3L14.017 3C14.017 1.89543 14.9124 1 16.017 1H19.017C21.2261 1 23.017 2.79086 23.017 5V15C23.017 18.3137 20.3307 21 17.017 21H14.017ZM1.017 21L1.017 18C1.017 16.8954 1.91243 16 3.017 16H6.017C6.56928 16 7.017 15.5523 7.017 15V9C7.017 8.44772 6.56928 8 6.017 8H3.017C1.91243 8 1.017 7.10457 1.017 6V3L1.017 3C1.017 1.89543 1.91243 1 3.017 1H6.017C8.22614 1 10.017 2.79086 10.017 5V15C10.017 18.3137 7.33071 21 4.017 21H1.017Z" /></svg>
-                          <p className="text-sm text-slate-600 font-medium leading-relaxed italic relative z-10 pl-4">
+                        <div className={`p-8 rounded-[2.5rem] border relative ${isMastered ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
+                          <svg className={`absolute top-4 left-4 w-8 h-8 ${isMastered ? 'text-emerald-200' : 'text-slate-200'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M14.017 21L14.017 18C14.017 16.8954 14.9124 16 16.017 16H19.017C19.5693 16 20.017 15.5523 20.017 15V9C20.017 8.44772 19.5693 8 19.017 8H16.017C14.9124 8 14.017 7.10457 14.017 6V3L14.017 3C14.017 1.89543 14.9124 1 16.017 1H19.017C21.2261 1 23.017 2.79086 23.017 5V15C23.017 18.3137 20.3307 21 17.017 21H14.017ZM1.017 21L1.017 18C1.017 16.8954 1.91243 16 3.017 16H6.017C6.56928 16 7.017 15.5523 7.017 15V9C7.017 8.44772 6.56928 8 6.017 8H3.017C1.91243 8 1.017 7.10457 1.017 6V3L1.017 3C1.017 1.89543 1.91243 1 3.017 1H6.017C8.22614 1 10.017 2.79086 10.017 5V15C10.017 18.3137 7.33071 21 4.017 21H1.017Z" /></svg>
+                          <p className={`text-sm font-medium leading-relaxed italic relative z-10 pl-4 ${isMastered ? 'text-emerald-800' : 'text-slate-600'}`}>
                             {item.whyItMatters}
                           </p>
                         </div>
@@ -1438,27 +1984,47 @@ export const FeedbackView: React.FC<FeedbackViewProps> = ({ result, onReset, onP
                       
                       <button 
                         onClick={() => onPracticeDelta(item)} 
-                        className="w-full py-7 bg-slate-900 text-white rounded-[2.5rem] font-black text-[12px] uppercase tracking-[0.3em] hover:bg-black transition shadow-2xl active:scale-95 transform hover:-translate-y-1 flex items-center justify-center space-x-3"
+                        className={`w-full py-7 rounded-[2.5rem] font-black text-[12px] uppercase tracking-[0.3em] transition shadow-2xl active:scale-95 transform hover:-translate-y-1 flex items-center justify-center space-x-3 ${
+                          isMastered 
+                            ? 'bg-emerald-800 hover:bg-emerald-900 text-white' 
+                            : 'bg-slate-900 hover:bg-black text-white'
+                        }`}
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
-                        <span>Practice This Phrase</span>
+                        {isMastered ? (
+                          <>
+                            <Repeat className="w-5 h-5" />
+                            <span>Practice Again</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                            <span>Practice This Phrase</span>
+                          </>
+                        )}
                       </button>
                     </div>
 
                     {/* Phrasing Guide */}
-                    <div className="lg:col-span-7 bg-indigo-50/30 p-10 rounded-[3rem] border border-indigo-100 shadow-inner">
+                    <div className={`lg:col-span-7 p-10 rounded-[3rem] border shadow-inner ${
+                      isMastered ? 'bg-emerald-50/30 border-emerald-100' : 'bg-indigo-50/30 border-indigo-100'
+                    }`}>
                       <div className="flex items-center space-x-3 mb-8">
-                        <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
+                        <div className={`w-1.5 h-6 rounded-full ${isMastered ? 'bg-emerald-500' : 'bg-indigo-500'}`}></div>
                         <p className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Staff Phrasing Guide</p>
                       </div>
                       <div className="max-h-[400px] overflow-y-auto pr-4 no-scrollbar">
-                        <HowToRenderer text={item.howTo} />
+                        <HowToGuideRenderer guide={item.howTo} />
                       </div>
-                    </div>
-                  </div>
+                        </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
                 </div>
              </div>
-           ))}
+             );
+           })}
         </div>
       </div>
 

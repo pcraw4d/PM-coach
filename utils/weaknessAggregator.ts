@@ -8,6 +8,7 @@ import {
 
 export function computeWeaknessProfile(history: HistoryItem[]): AggregatedWeaknessProfile {
   // Filter for valid interviews with results, sorted by date (oldest first)
+  // Explicitly exclude PRACTICE items
   const interviews = history
     .filter(h => h.activityType === 'INTERVIEW' && h.result)
     .sort((a, b) => a.timestamp - b.timestamp);

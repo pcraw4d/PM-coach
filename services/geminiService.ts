@@ -875,6 +875,7 @@ ${followUpTranscript}`;
 
       LOGIC MAPPING INSTRUCTIONS:
       - userLogicPath: Break down the user's response into a sequence of logical steps. For each step, determine if it aligns with the Staff Golden Path (isAligned). If it does NOT align, provide a specific 'staffPivot' explaining the tactical correction for that specific line.
+      - For each userLogicPath step also estimate estimatedTimePercent: an integer 0-100 representing the approximate percentage of total initial response devoted to this step. All steps must sum to approximately 100. Base the estimate on relative word count and position in the transcript. Staff benchmarks: Product Sense — Goal Definition 15-20%, User Segmentation 20-25%, Problem 15-20%, Solution 25-30%, MVP+Metrics 15-20%. Analytical — Framework 20%, Hypotheses 25%, Validation 20%, Metrics 20%, Recommendation 15%.
       - goldenPath: Return the GOLDEN PATH REFERENCE provided above. You must preserve the title, content, why, and strategicTradeOffs fields exactly as provided. However, you MUST generate and populate the 'scriptExample' field for every step.
       - scriptExample: Generate a 3-5 sentence script showing EXACTLY what a Staff PM would say at that specific moment in the interview.
         - Use the exact question context (company, product, scenario)
@@ -893,6 +894,7 @@ ${followUpTranscript}`;
       - hedgingLanguageFound: List every instance of weak hedging language found verbatim (e.g. "I think", "maybe", "sort of", "kind of", "I guess", "probably"). Return as array of strings.
       - overallAssessment: "Strong", "Average", or "Needs Work"
       - summary: 2-3 sentences describing the most important communication pattern to fix, with a specific example from the transcript.
+      - openingAnalysis: Evaluate ONLY the first 2-3 sentences of the initial response (the opening of annotatedVision). score: 0-100. label: one of 'Strong BLUF', 'Weak Opening', 'No Framework Signal', 'Average'. note: 1 sentence on the opening specifically. Staff standard: opens with the business goal or a clear framing statement within 2 sentences.
 
       ANNOTATION INSTRUCTIONS:
       - annotatedVision covers the initial response transcript
@@ -907,6 +909,7 @@ ${followUpTranscript}`;
         ACTION: [One specific, concrete thing the candidate should practice or learn to improve this skill]
 
       - Also populate the whyItMatters field for all non-neutral annotations with 1-2 sentences explaining the strategic significance of this gap or strength in a real PM interview
+      - Also populate interviewerReaction for all non-neutral annotations. Write 1 sentence in first-person interviewer voice describing the internal reaction at that exact moment in the interview. Examples: 'She jumped to features — I am already skeptical about her prioritization.' or 'That is a precise metric definition — I am taking notes.' Do not use the word 'candidate'. Use 'she', 'he', or 'they' instead. Keep it under 20 words.
       - Aim for roughly 30% strength, 40% weakness/qualifier, 30% neutral across each transcript — do not annotate every phrase as a weakness
 
       ANNOTATION GROUNDING INSTRUCTIONS:
@@ -948,12 +951,32 @@ ${followUpTranscript}`;
       SCORE 0-39 (Needs Work):
       The candidate did not demonstrate this skill. The response either missed the concept entirely or actively contradicted best practice.
 
+      IMPROVEMENT ITEMS INSTRUCTIONS:
+      Generate 3 specific improvement items based on the weaknesses identified.
+      - category: The rubric category this improvement addresses.
+      - action: A short, punchy headline for the improvement.
+      - howTo: A structured object. avoidPhrase: the exact weak phrasing from the transcript (if applicable). staffPhrase: a 1-sentence Staff-level rewrite of that phrase. steps: 2-4 concrete numbered actions the candidate should practice, each under 25 words.
+      - whyItMatters: 1 sentence explaining the strategic impact of this gap.
+      - effort: "Low", "Medium", or "High"
+      - impact: "Low", "Medium", or "High"
+
       CALIBRATION RULES:
       - Do not give any score above 85 unless the response contains a specific, quantified claim or a company-specific insight
       - Do not give any score above 75 unless the candidate explicitly structured their answer using a recognizable framework
       - Do not give the same score to more than 2 rubric categories in one session — differentiate based on relative performance
       - The overallScore will be calculated mathematically from your rubric scores — calibrate each category independently
       - A response can score 90 in one category and 45 in another — uneven profiles are more accurate than uniformly average scores
+
+      BAR RAISER VERDICT INSTRUCTIONS:
+      Based on this performance, give a hiring verdict for a mid-to-senior PM role at a top-tier tech company.
+      verdict must be exactly one of: 'Bar Raise', 'Strong Hire', 'Hire', 'No Hire', 'Strong No Hire'.
+      Thresholds: 
+      - 'Bar Raise' only if overallScore >= 87 AND no rubric score below 70.
+      - 'Strong Hire' for 80-86 with floor >= 65.
+      - 'Hire' for 72-79 with floor >= 55.
+      - 'No Hire' for 58-71.
+      - 'Strong No Hire' below 58 or any floor below 40.
+      rationale: 1 sentence stating the single most decisive factor. Frame as: 'The [factor] was the deciding signal.'
     `;
 
     const responseSchema = {
@@ -966,7 +989,8 @@ ${followUpTranscript}`;
             properties: {
               step: { type: Type.STRING },
               isAligned: { type: Type.BOOLEAN },
-              staffPivot: { type: Type.STRING }
+              staffPivot: { type: Type.STRING },
+              estimatedTimePercent: { type: Type.NUMBER }
             },
             required: ["step", "isAligned"]
           }
@@ -996,7 +1020,18 @@ ${followUpTranscript}`;
             properties: {
               category: { type: Type.STRING },
               action: { type: Type.STRING },
-              howTo: { type: Type.STRING },
+              howTo: { 
+                type: Type.OBJECT,
+                properties: {
+                  avoidPhrase: { type: Type.STRING },
+                  staffPhrase: { type: Type.STRING },
+                  steps: { 
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                  }
+                },
+                required: ["steps"]
+              },
               whyItMatters: { type: Type.STRING },
               effort: { type: Type.STRING },
               impact: { type: Type.STRING }
@@ -1016,7 +1051,16 @@ ${followUpTranscript}`;
             clarityScore: { type: Type.NUMBER },
             structureScore: { type: Type.NUMBER },
             overallAssessment: { type: Type.STRING },
-            summary: { type: Type.STRING }
+            summary: { type: Type.STRING },
+            openingAnalysis: {
+              type: Type.OBJECT,
+              properties: {
+                score: { type: Type.NUMBER },
+                label: { type: Type.STRING },
+                note: { type: Type.STRING }
+              },
+              required: ["score", "label", "note"]
+            }
           },
           required: ["specificityScore", "executiveFramingScore", "hedgingLanguageFound", "clarityScore", "structureScore", "overallAssessment", "summary"]
         },
@@ -1027,7 +1071,8 @@ ${followUpTranscript}`;
             properties: {
               text: { type: Type.STRING },
               type: { type: Type.STRING },
-              feedback: { type: Type.STRING }
+              feedback: { type: Type.STRING },
+              interviewerReaction: { type: Type.STRING }
             },
             required: ["text", "type", "feedback"]
           }
@@ -1039,7 +1084,8 @@ ${followUpTranscript}`;
             properties: {
               text: { type: Type.STRING },
               type: { type: Type.STRING },
-              feedback: { type: Type.STRING }
+              feedback: { type: Type.STRING },
+              interviewerReaction: { type: Type.STRING }
             },
             required: ["text", "type", "feedback"]
           }
@@ -1070,7 +1116,15 @@ ${followUpTranscript}`;
             required: ["title", "url", "type"]
           }
         },
-        benchmarkResponse: { type: Type.STRING }
+        benchmarkResponse: { type: Type.STRING },
+        barRaiserVerdict: {
+          type: Type.OBJECT,
+          properties: {
+            verdict: { type: Type.STRING },
+            rationale: { type: Type.STRING }
+          },
+          required: ["verdict", "rationale"]
+        }
       },
       required: [
         "userLogicPath", "defensivePivotAnalysis", "rubricScores", 

@@ -39,6 +39,44 @@ const App: React.FC = () => {
   const [hasCheckpoint, setHasCheckpoint] = useState<boolean>(false);
 
   const profile = React.useMemo(() => computeWeaknessProfile(history), [history]);
+  
+  const priorRubricAverages = React.useMemo(() => {
+    if (!result) return undefined;
+    
+    // Get last 5 interview sessions, excluding current one
+    const recentInterviews = history
+      .filter(h => h.activityType === 'INTERVIEW' && h.result && h.result.rubricScores)
+      .filter(h => h.timestamp !== result.timestamp) // Exclude current result by timestamp if possible, or just take the list as is if result is new
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 5);
+
+    if (recentInterviews.length === 0) return undefined;
+
+    const sums: Record<string, number> = {};
+    const counts: Record<string, number> = {};
+
+    recentInterviews.forEach(interview => {
+      interview.result?.rubricScores.forEach(r => {
+        if (!sums[r.category]) {
+          sums[r.category] = 0;
+          counts[r.category] = 0;
+        }
+        sums[r.category] += r.score;
+        counts[r.category] += 1;
+      });
+    });
+
+    const averages: Record<string, number> = {};
+    Object.keys(sums).forEach(category => {
+      // Only include if we have at least 2 data points to form a valid baseline
+      if (counts[category] >= 2) {
+        averages[category] = Math.round(sums[category] / counts[category]);
+      }
+    });
+
+    return averages;
+  }, [history, result]);
+
   const recommendedType = React.useMemo(() => {
     if (profile.topWeaknesses.length === 0) return null;
     const topCategory = profile.topWeaknesses[0].category;
@@ -395,6 +433,19 @@ const App: React.FC = () => {
          const base64 = (reader.result as string).split(',')[1];
          const feedback = await geminiService.verifyDeltaPractice(targetDelta, base64, blob.type);
          setPracticeFeedback(feedback);
+
+         // Save practice session to history
+         const practiceItem: HistoryItem = {
+           id: `prac-${Date.now()}`,
+           activityType: 'PRACTICE',
+           timestamp: Date.now(),
+           title: targetDelta.action,
+           practiceCategory: targetDelta.category,
+           practiceSuccess: feedback.success,
+           xpAwarded: feedback.success ? 25 : 10
+         };
+         saveHistory([practiceItem, ...history]);
+
        } catch (err) {
          setApiError("Practice verification failed.");
        } finally {
@@ -469,7 +520,7 @@ const App: React.FC = () => {
                           </div>
                        </div>
                     </button>
-                    <button 
+                     <button 
                       onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} 
                       className={`relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 min-h-[340px] transition-all ${recommendedType === InterviewType.ANALYTICAL_THINKING ? 'border-emerald-300 ring-4 ring-emerald-500/20' : 'border-white/10'}`}
                     >
@@ -487,6 +538,19 @@ const App: React.FC = () => {
                           </div>
                        </div>
                     </button>
+                    
+                    <button 
+                      onClick={() => setPhase('custom-input')}
+                      className="relative overflow-hidden group bg-white p-8 rounded-[3.5rem] shadow-sm hover:shadow-xl hover:scale-[1.01] text-left border-2 border-slate-200 min-h-[140px] transition-all flex items-center gap-6"
+                    >
+                       <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                         ✏️
+                       </div>
+                       <div>
+                          <h3 className="text-xl font-black text-slate-900 tracking-tight mb-1">Custom Question</h3>
+                          <p className="text-slate-500 font-bold text-xs">Practice on your actual interview questions.</p>
+                       </div>
+                    </button>
                  </div>
               </div>
               <div className="lg:col-span-3">
@@ -494,6 +558,23 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+        {phase === 'custom-input' && (
+          <CustomQuestionInput 
+            onStart={(text, type) => {
+              const customQ: Question = {
+                id: `custom-${Date.now()}`,
+                type,
+                text,
+                isCustom: true
+              };
+              setCurrentQuestion(customQ);
+              setPhase('question');
+              sessionStorage.clear();
+              setHasCheckpoint(false);
+            }} 
+            onCancel={() => setPhase('config')} 
+          />
         )}
         {phase === 'question' && currentQuestion && (
           <div className="text-center space-y-12 py-12">
@@ -544,7 +625,7 @@ const App: React.FC = () => {
             </p>
           </div>
         )}
-        {phase === 'result' && result && <FeedbackView result={result} onReset={() => setPhase('config')} onPracticeDelta={handlePracticeDelta} isProductSense={currentQuestion?.type === InterviewType.PRODUCT_SENSE || result.question?.includes("Design") || false} question={currentQuestion?.text || result.question} />}
+        {phase === 'result' && result && <FeedbackView result={result} onReset={() => setPhase('config')} onPracticeDelta={handlePracticeDelta} isProductSense={currentQuestion?.type === InterviewType.PRODUCT_SENSE || result.question?.includes("Design") || false} question={currentQuestion?.text || result.question} priorRubricAverages={priorRubricAverages} weaknessProfile={profile} practiceHistory={history.filter(h => h.activityType === 'PRACTICE')} />}
         {phase === 'history' && <HistoryList history={history} onSelect={(result) => { setResult(result); setPhase('result'); }} onClear={() => saveHistory([])} />}
         {phase === 'settings' && user && <SettingsView user={user} onUpdate={(u) => { setUser({...user, ...u}); localStorage.setItem('pm_coach_personal_user', JSON.stringify({...user, ...u})); }} onDeleteAccount={() => { localStorage.clear(); window.location.reload(); }} onBack={() => setPhase('config')} />}
       </Container>
