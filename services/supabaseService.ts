@@ -277,13 +277,18 @@ export const supabaseService = {
 
   async checkWaitlistApproval(email: string): Promise<boolean> {
     if (!supabase) return false;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('waitlist')
       .select('id')
       .eq('email', email)
       .eq('status', 'approved')
-      .single();
-    
-    return !!data;
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error checking waitlist approval:', error);
+      return false;
+    }
+
+    return data !== null;
   }
 };
