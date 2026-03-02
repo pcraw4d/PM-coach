@@ -234,20 +234,20 @@ export const supabaseService = {
     const isApproved = await this.checkWaitlistApproval(email);
     if (!isApproved) return { user: null, error: 'WAITLIST_NOT_APPROVED' };
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+            data: {
+                name,
+                avatar_seed: 'pm-' + Date.now(),
+                joined_at: Date.now()
+            }
+        }
+    });
     
     if (error) return { user: null, error: error.message };
     
-    if (data.user) {
-        // Sync user to create the row
-        await this.syncUser({
-            id: data.user.id,
-            name,
-            email,
-            avatarSeed: 'pm-' + Date.now(),
-            joinedAt: Date.now()
-        });
-    }
     return { user: data.user, error: null };
   },
 
@@ -290,5 +290,38 @@ export const supabaseService = {
     }
 
     return data !== null;
+  },
+
+  async checkEmailStatus(email: string): Promise<'has-account' | 'approved' | 'pending' | 'unknown'> {
+    if (!supabase) return 'unknown';
+
+    // 1. Check if user already has an account
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (userData) return 'has-account';
+    if (userError) console.error('Error checking user status:', userError);
+
+    // 2. Check waitlist status
+    const { data: waitlistData, error: waitlistError } = await supabase
+      .from('waitlist')
+      .select('status')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (waitlistError) {
+      console.error('Error checking waitlist status:', waitlistError);
+      return 'unknown';
+    }
+
+    if (waitlistData) {
+      if (waitlistData.status === 'approved') return 'approved';
+      if (waitlistData.status === 'pending') return 'pending';
+    }
+
+    return 'unknown';
   }
 };

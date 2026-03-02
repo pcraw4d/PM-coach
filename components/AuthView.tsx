@@ -5,10 +5,10 @@ interface AuthViewProps {
   onAuthSuccess: (user: any) => void;
 }
 
-type AuthScreen = 'signin' | 'waitlist' | 'waitlist-pending' | 'waitlist-approved';
+type AuthScreen = 'email' | 'password' | 'waitlist' | 'waitlist-pending' | 'waitlist-approved';
 
 export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
-  const [screen, setScreen] = useState<AuthScreen>('signin');
+  const [screen, setScreen] = useState<AuthScreen>('email');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -26,15 +26,49 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
     setScreen(newScreen);
   };
 
+  const handleCheckEmail = async () => {
+    if (!email) {
+      setError("Please enter your email.");
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    setPendingEmail(email);
+
+    try {
+      const status = await supabaseService.checkEmailStatus(email);
+      
+      switch (status) {
+        case 'has-account':
+          setScreen('password');
+          break;
+        case 'approved':
+          setScreen('waitlist-approved');
+          break;
+        case 'pending':
+          setScreen('waitlist-pending');
+          break;
+        case 'unknown':
+        default:
+          setScreen('waitlist');
+          break;
+      }
+    } catch (e) {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSignIn = async () => {
-    if (!email || !password) {
-      setError("Please enter both email and password.");
+    if (!password) {
+      setError("Please enter your password.");
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
-      const { user, error } = await supabaseService.signIn(email, password);
+      const { user, error } = await supabaseService.signIn(pendingEmail, password);
       if (error) {
         setError(error);
       } else if (user) {
@@ -55,19 +89,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
     setIsLoading(true);
     setError(null);
     try {
-      // Check if already approved
-      const isApproved = await supabaseService.checkWaitlistApproval(pendingEmail);
-      if (isApproved) {
-        setScreen('waitlist-approved');
+      const { error } = await supabaseService.applyToWaitlist(pendingEmail);
+      if (error === 'ALREADY_APPLIED') {
+        setError("You've already applied — we'll be in touch when you're approved.");
+      } else if (error) {
+        setError(error);
       } else {
-        const { error } = await supabaseService.applyToWaitlist(pendingEmail);
-        if (error === 'ALREADY_APPLIED') {
-          setError("You've already applied — we'll be in touch when you're approved.");
-        } else if (error) {
-          setError(error);
-        } else {
-          setScreen('waitlist-pending');
-        }
+        setScreen('waitlist-pending');
       }
     } catch (e) {
       setError("An unexpected error occurred.");
@@ -115,12 +143,12 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
       <div className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-10 shadow-2xl w-full max-w-md">
         
-        {/* SIGN IN SCREEN */}
-        {screen === 'signin' && (
+        {/* EMAIL SCREEN */}
+        {screen === 'email' && (
           <div className="space-y-8">
             <div className="space-y-2 text-center">
-              <h1 className="text-2xl font-black text-white">Welcome back</h1>
-              <p className="text-slate-500 text-sm">Sign in to your PM Coach account</p>
+              <h1 className="text-2xl font-black text-white">Welcome</h1>
+              <p className="text-slate-500 text-sm">Enter your email to continue</p>
             </div>
             
             <div className="space-y-4">
@@ -128,12 +156,47 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                 type="email" 
                 placeholder="Email address"
                 value={email}
-                onChange={(e) => {
-                    setEmail(e.target.value);
-                    setPendingEmail(e.target.value);
-                }}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-slate-800/50 border border-slate-700 text-white px-6 py-5 rounded-2xl focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-medium transition-all"
               />
+            </div>
+
+            {error && <p className="text-rose-500 text-xs font-bold text-center">{error}</p>}
+
+            <div className="space-y-4">
+              <button 
+                onClick={handleCheckEmail}
+                disabled={isLoading}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-5 rounded-2xl uppercase tracking-widest text-xs active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? renderSpinner() : "Continue"}
+              </button>
+              
+              <div className="text-center">
+                <span className="text-slate-500 text-xs mr-1">Don't have access?</span>
+                <button 
+                  onClick={() => {
+                    setPendingEmail(email);
+                    handleSwitchScreen('waitlist');
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 text-xs font-bold cursor-pointer underline-offset-2 hover:underline"
+                >
+                  Apply for early access
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PASSWORD SCREEN */}
+        {screen === 'password' && (
+          <div className="space-y-8">
+            <div className="space-y-2 text-center">
+              <h1 className="text-2xl font-black text-white">Welcome back</h1>
+              <p className="text-slate-500 text-sm">{pendingEmail}</p>
+            </div>
+            
+            <div className="space-y-4">
               <input 
                 type="password" 
                 placeholder="Password"
@@ -156,10 +219,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               
               <div className="text-center">
                 <button 
-                  onClick={() => handleSwitchScreen('waitlist')}
+                  onClick={() => {
+                    setPassword('');
+                    handleSwitchScreen('email');
+                  }}
                   className="text-indigo-400 hover:text-indigo-300 text-xs font-bold cursor-pointer underline-offset-2 hover:underline"
                 >
-                  Don't have access? Apply for early access
+                  ← Use a different email
                 </button>
               </div>
             </div>
@@ -195,13 +261,12 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                 {isLoading ? renderSpinner() : "Apply for Access"}
               </button>
               
-              <div className="text-center space-x-1">
-                <span className="text-slate-500 text-xs">Already have an account?</span>
+              <div className="text-center">
                 <button 
-                  onClick={() => handleSwitchScreen('signin')}
+                  onClick={() => handleSwitchScreen('email')}
                   className="text-indigo-400 hover:text-indigo-300 text-xs font-bold cursor-pointer underline-offset-2 hover:underline"
                 >
-                  Sign in
+                  ← Back
                 </button>
               </div>
             </div>
@@ -215,16 +280,16 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             <div className="space-y-2">
               <h1 className="text-2xl font-black text-white">You're on the list</h1>
               <p className="text-slate-500 text-sm leading-relaxed">
-                We'll review your application and reach out when you're approved. Come back here to sign up once approved.
+                We'll review your application and reach out when you're approved. Come back and enter your email to check your status.
               </p>
             </div>
             
             <div className="pt-4">
               <button 
-                onClick={() => handleSwitchScreen('signin')}
+                onClick={() => handleSwitchScreen('email')}
                 className="text-indigo-400 hover:text-indigo-300 text-xs font-bold cursor-pointer underline-offset-2 hover:underline"
               >
-                Back to sign in
+                ← Back to start
               </button>
             </div>
           </div>
@@ -279,13 +344,12 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                 {isLoading ? renderSpinner() : "Create Account"}
               </button>
               
-              <div className="text-center space-x-1">
-                <span className="text-slate-500 text-xs">Already have an account?</span>
+              <div className="text-center">
                 <button 
-                  onClick={() => handleSwitchScreen('signin')}
+                  onClick={() => handleSwitchScreen('email')}
                   className="text-indigo-400 hover:text-indigo-300 text-xs font-bold cursor-pointer underline-offset-2 hover:underline"
                 >
-                  Sign in
+                  ← Back
                 </button>
               </div>
             </div>
