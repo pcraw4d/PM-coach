@@ -46,7 +46,7 @@ const App: React.FC = () => {
     // Get last 5 interview sessions, excluding current one
     const recentInterviews = history
       .filter(h => h.activityType === 'INTERVIEW' && h.result && h.result.rubricScores)
-      .filter(h => h.timestamp !== result.timestamp) // Exclude current result by timestamp if possible, or just take the list as is if result is new
+      .filter(h => h.result !== result) // Exclude current result by reference equality
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, 5);
 

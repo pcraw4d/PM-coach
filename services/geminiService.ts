@@ -1226,6 +1226,17 @@ ${followUpTranscript}`;
 
   async verifyDeltaPractice(delta: ImprovementItem, audioBase64: string, mimeType: string): Promise<{ success: boolean; feedback: string }> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+
+    const howToText = typeof delta.howTo === 'string'
+      ? delta.howTo
+      : [
+          delta.howTo.avoidPhrase
+            ? `Avoid: "${delta.howTo.avoidPhrase}"` : '',
+          delta.howTo.staffPhrase
+            ? `Staff phrasing: "${delta.howTo.staffPhrase}"` : '',
+          ...delta.howTo.steps.map((s, i) => `${i + 1}. ${s}`)
+        ].filter(Boolean).join('\n');
+
     const prompt = `
   You are a Staff PM coach listening to a practice recording.
   
@@ -1234,7 +1245,7 @@ ${followUpTranscript}`;
   Category: "${delta.category}"
   
   What success looks like:
-  ${delta.howTo}
+  ${howToText}
   
   Why this skill matters:
   ${delta.whyItMatters}
