@@ -218,5 +218,72 @@ export const supabaseService = {
       ]);
 
     if (error) console.error('Error completing mission:', error);
+  },
+
+  async signIn(email: string, password: string): Promise<{ user: any; error: string | null }> {
+    if (!supabase) return { user: null, error: 'Supabase not initialized' };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { user: null, error: error.message };
+    return { user: data.user, error: null };
+  },
+
+  async signUp(email: string, password: string, name: string): Promise<{ user: any; error: string | null }> {
+    if (!supabase) return { user: null, error: 'Supabase not initialized' };
+    
+    // Check waitlist first
+    const isApproved = await this.checkWaitlistApproval(email);
+    if (!isApproved) return { user: null, error: 'WAITLIST_NOT_APPROVED' };
+
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    
+    if (error) return { user: null, error: error.message };
+    
+    if (data.user) {
+        // Sync user to create the row
+        await this.syncUser({
+            id: data.user.id,
+            name,
+            email,
+            avatarSeed: 'pm-' + Date.now(),
+            joinedAt: Date.now()
+        });
+    }
+    return { user: data.user, error: null };
+  },
+
+  async signOut(): Promise<void> {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+  },
+
+  async getSession(): Promise<any | null> {
+    if (!supabase) return null;
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user ?? null;
+  },
+
+  async applyToWaitlist(email: string): Promise<{ error: string | null }> {
+    if (!supabase) return { error: 'Supabase not initialized' };
+    const { error } = await supabase
+      .from('waitlist')
+      .insert([{ email, status: 'pending', created_at: Date.now() }]);
+    
+    if (error) {
+        if (error.code === '23505') return { error: 'ALREADY_APPLIED' };
+        return { error: error.message };
+    }
+    return { error: null };
+  },
+
+  async checkWaitlistApproval(email: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { data } = await supabase
+      .from('waitlist')
+      .select('id')
+      .eq('email', email)
+      .eq('status', 'approved')
+      .single();
+    
+    return !!data;
   }
 };

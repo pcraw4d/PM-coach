@@ -6,20 +6,20 @@ import { FeedbackView } from './components/FeedbackView.tsx';
 import { HistoryList } from './components/HistoryList.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { CustomQuestionInput } from './components/CustomQuestionInput.tsx';
-import { AccessGate } from './components/AccessGate.tsx';
+import { AuthView } from './components/AuthView.tsx';
 import { MissionFeed } from './components/MissionFeed.tsx';
 import { DashboardProgress } from './components/DashboardProgress.tsx';
 import { PreSessionBriefing } from './components/PreSessionBriefing.tsx';
 import { InterviewType, Question, InterviewPhase, InterviewResult, HistoryItem, User, KnowledgeMission, ImprovementItem } from './types.ts';
 import { QUESTIONS, RUBRICS } from './constants.tsx';
 import { geminiService } from './services/geminiService.ts';
-import { supabaseService } from './services/supabaseService.ts';
+import { supabaseService, supabase } from './services/supabaseService.ts';
 import { computeWeaknessProfile } from './utils/weaknessAggregator.ts';
 
 type LoadingStage = 'UPLOADING_AUDIO' | 'TRANSCRIBING' | 'GENERATING_FOLLOWUPS' | 'GENERATING_LOGIC' | 'FINALIZING_AUDIT' | 'SEARCHING_RESOURCES';
 
 const App: React.FC = () => {
-  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [authUser, setAuthUser] = useState<any | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [user, setUser] = useState<User | null>(null);
   const [phase, setPhase] = useState<InterviewPhase>('config');
@@ -86,10 +86,18 @@ const App: React.FC = () => {
   }, [profile]);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem('pm_app_access_token');
-    if (savedToken) setIsAuthorized(true);
-    setIsAuthLoading(false);
+    // Check for existing Supabase session on mount
+    supabaseService.getSession().then(user => {
+      setAuthUser(user);
+      setIsAuthLoading(false);
+    });
 
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+
+    // Keep the existing GEMINI_API_KEY check
     if (!process.env.GEMINI_API_KEY) {
       setMissingKeyError(true);
     }
@@ -105,14 +113,21 @@ const App: React.FC = () => {
     } else if (checkpoint) {
       setHasCheckpoint(true);
     }
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (!isAuthorized) return;
+    if (!authUser) return;
     
     const initUser = async () => {
       const savedUserStr = localStorage.getItem('pm_coach_personal_user');
-      const localUser = savedUserStr ? JSON.parse(savedUserStr) : { id: 'me', name: 'Product Master', avatarSeed: 'pm-'+Date.now(), joinedAt: Date.now() };
+      const localUser = savedUserStr ? JSON.parse(savedUserStr) : {
+        id: authUser.id,
+        name: authUser.email?.split('@')[0] || 'Product Master',
+        avatarSeed: 'pm-' + Date.now(),
+        joinedAt: Date.now()
+      };
       
       // Sync with Supabase
       const syncedUser = await supabaseService.syncUser(localUser);
@@ -125,6 +140,19 @@ const App: React.FC = () => {
         // Load history from Supabase
         const remoteHistory = await supabaseService.getHistory(syncedUser.id);
         setHistory(remoteHistory);
+
+        // Migration logic
+        const localHistoryRaw = localStorage.getItem('pm_coach_history');
+        const alreadyMigrated = localStorage.getItem('pm_coach_migrated');
+        if (localHistoryRaw && !alreadyMigrated && syncedUser) {
+          const localHistory: HistoryItem[] = JSON.parse(localHistoryRaw);
+          if (localHistory.length > 0) {
+            for (const item of localHistory) {
+              await supabaseService.addHistoryItem(syncedUser.id, item);
+            }
+            localStorage.setItem('pm_coach_migrated', 'true');
+          }
+        }
         
         // Load completed missions
         const completedMissionIds = await supabaseService.getCompletedMissions(syncedUser.id);
@@ -160,7 +188,7 @@ const App: React.FC = () => {
     };
 
     initUser();
-  }, [isAuthorized]);
+  }, [authUser]);
 
   const loadMissions = async () => {
     setIsMissionsLoading(true);
@@ -455,12 +483,12 @@ const App: React.FC = () => {
   };
 
   if (isAuthLoading) return null;
-  if (!isAuthorized) return <AccessGate onGrantAccess={() => setIsAuthorized(true)} />;
+  if (!authUser) return <AuthView onAuthSuccess={(u) => setAuthUser(u)} />;
   if (!user) return null;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      <Header user={user} onShowHistory={() => setPhase('history')} onShowHome={() => setPhase('config')} onShowSettings={() => setPhase('settings')} onLogout={() => setIsAuthorized(false)} />
+      <Header user={user} onShowHistory={() => setPhase('history')} onShowHome={() => setPhase('config')} onShowSettings={() => setPhase('settings')} onLogout={() => { supabaseService.signOut(); setAuthUser(null); setUser(null); }} />
       <Container>
         {missingKeyError && (
           <div className="mb-8 p-6 bg-amber-50 border-2 border-amber-200 rounded-[2rem] text-amber-800">

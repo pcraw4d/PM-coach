@@ -9,7 +9,7 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ user, onShowHistory, onShowHome, onShowSettings }) => {
+export const Header: React.FC<HeaderProps> = ({ user, onShowHistory, onShowHome, onShowSettings, onLogout }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -41,6 +41,13 @@ export const Header: React.FC<HeaderProps> = ({ user, onShowHistory, onShowHome,
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span className="hidden sm:inline">Journal</span>
+            </button>
+
+            <button 
+              onClick={onLogout}
+              className="text-slate-400 hover:text-slate-600 font-black text-[10px] uppercase tracking-widest transition"
+            >
+              Sign Out
             </button>
             
             <button 
