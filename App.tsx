@@ -6,6 +6,7 @@ import { FeedbackView } from './components/FeedbackView.tsx';
 import { HistoryList } from './components/HistoryList.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { CustomQuestionInput } from './components/CustomQuestionInput.tsx';
+import { QuestionBrowser } from './components/QuestionBrowser.tsx';
 import { AuthView } from './components/AuthView.tsx';
 import { MissionFeed } from './components/MissionFeed.tsx';
 import { DashboardProgress } from './components/DashboardProgress.tsx';
@@ -22,6 +23,7 @@ const App: React.FC = () => {
   const [authUser, setAuthUser] = useState<any | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [user, setUser] = useState<User | null>(null);
+  const [questions, setQuestions] = useState<Question[]>(QUESTIONS);
   const [phase, setPhase] = useState<InterviewPhase>('config');
   const [loadingStage, setLoadingStage] = useState<LoadingStage>('UPLOADING_AUDIO');
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
@@ -33,6 +35,7 @@ const App: React.FC = () => {
   const [initialTranscript, setInitialTranscript] = useState<string>('');
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
   const [targetDelta, setTargetDelta] = useState<ImprovementItem | null>(null);
+  const [selectedBrowserType, setSelectedBrowserType] = useState<InterviewType>(InterviewType.PRODUCT_SENSE);
   const [practiceFeedback, setPracticeFeedback] = useState<{ success: boolean; feedback: string } | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [missingKeyError, setMissingKeyError] = useState<boolean>(false);
@@ -93,7 +96,7 @@ const App: React.FC = () => {
     });
 
     // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
       setAuthUser(session?.user ?? null);
     });
 
@@ -188,7 +191,23 @@ const App: React.FC = () => {
     };
 
     initUser();
+    loadQuestions();
   }, [authUser]);
+
+  const loadQuestions = async () => {
+    try {
+      const remoteQuestions = await supabaseService.getQuestions(authUser?.id);
+      if (remoteQuestions && remoteQuestions.length > 0) {
+        // Merge with local questions, ensuring no duplicates by ID
+        const localIds = new Set(QUESTIONS.map(q => q.id));
+        const uniqueRemote = remoteQuestions.filter(q => !localIds.has(q.id));
+        setQuestions([...QUESTIONS, ...uniqueRemote]);
+      }
+    } catch (err) {
+      console.error("Failed to load questions from Supabase:", err);
+      // Fallback is already set to QUESTIONS in state init
+    }
+  };
 
   const loadMissions = async () => {
     setIsMissionsLoading(true);
@@ -247,9 +266,13 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartInterview = (type: InterviewType) => {
-    const filtered = QUESTIONS.filter(q => q.type === type);
-    setCurrentQuestion(filtered[Math.floor(Math.random() * filtered.length)]);
+  const handleStartInterview = (type: InterviewType, specificQuestion?: Question) => {
+    if (specificQuestion) {
+      setCurrentQuestion(specificQuestion);
+    } else {
+      const filtered = questions.filter(q => q.type === type);
+      setCurrentQuestion(filtered[Math.floor(Math.random() * filtered.length)]);
+    }
     setPhase('question');
     sessionStorage.clear();
     setHasCheckpoint(false);
@@ -257,7 +280,7 @@ const App: React.FC = () => {
 
   const handleNextQuestion = () => {
     if (currentQuestion) {
-      const filtered = QUESTIONS.filter(q => q.type === currentQuestion.type);
+      const filtered = questions.filter(q => q.type === currentQuestion.type);
       const remaining = filtered.filter(q => q.id !== currentQuestion.id);
       const nextQ = remaining.length > 0 
         ? remaining[Math.floor(Math.random() * remaining.length)] 
@@ -526,80 +549,129 @@ const App: React.FC = () => {
             
             <PreSessionBriefing history={history} />
 
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 items-start">
-              <div className="lg:col-span-2 space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-8 lg:gap-12 items-start">
+              <div className="space-y-6">
                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Interview Practice</h3>
-                 <div className="flex flex-col gap-8">
-                    <button 
+                 <div className="flex flex-col gap-4">
+                    <div 
                       onClick={() => handleStartInterview(InterviewType.PRODUCT_SENSE)} 
-                      className={`relative overflow-hidden group bg-gradient-to-br from-indigo-600 to-violet-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 min-h-[340px] transition-all ${recommendedType === InterviewType.PRODUCT_SENSE ? 'border-indigo-300 ring-4 ring-indigo-500/20' : 'border-white/10'}`}
+                      className={`relative overflow-hidden group bg-white/40 backdrop-blur-xl p-5 rounded-2xl shadow-sm hover:shadow-md hover:scale-[1.01] text-left border transition-all cursor-pointer flex flex-col min-h-[160px] ${recommendedType === InterviewType.PRODUCT_SENSE ? 'border-indigo-200 ring-4 ring-indigo-500/5 shadow-indigo-100' : 'border-slate-200/60'}`}
                     >
                        {recommendedType === InterviewType.PRODUCT_SENSE && (
-                         <div className="absolute top-6 right-6 bg-white/20 backdrop-blur-md text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/20">
+                         <div className="absolute top-4 right-4 bg-indigo-600/10 text-indigo-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-indigo-200/50">
                            Recommended
                          </div>
                        )}
-                       <div className="relative z-10 flex flex-col h-full text-white">
-                          <h3 className="text-4xl font-black mb-2 tracking-tighter">ProductSense</h3>
-                          <p className="text-indigo-100 font-bold text-sm leading-relaxed mb-8">Master visionary empathy and user-centric design.</p>
-                          <div className="mt-auto bg-white text-indigo-700 font-black px-8 py-4 rounded-full text-[11px] uppercase tracking-[0.2em] w-fit flex items-center space-x-3 shadow-xl group-hover:bg-indigo-50 transition-colors">
-                             <span>START SESSION</span>
-                             <ArrowRight className="w-4 h-4" />
+                       <div className="relative z-10 flex flex-col h-full">
+                          <div className="w-8 h-8 bg-indigo-600/10 rounded-lg flex items-center justify-center text-indigo-600 mb-3 group-hover:scale-110 transition-transform">
+                            <ArrowRight className="w-4 h-4 rotate-[-45deg]" />
+                          </div>
+                          <h3 className="text-xl font-black mb-1 tracking-tight text-slate-900">Product Sense</h3>
+                          <p className="text-slate-500 font-medium text-[11px] leading-relaxed mb-4">Master visionary empathy and user-centric design.</p>
+                          <div className="mt-auto flex items-center justify-between">
+                            <div 
+                              onClick={(e) => { e.stopPropagation(); handleStartInterview(InterviewType.PRODUCT_SENSE); }}
+                              className="bg-indigo-600 text-white font-black px-4 py-2 rounded-lg text-[9px] uppercase tracking-widest flex items-center space-x-2 shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer"
+                            >
+                               <span>START</span>
+                               <ArrowRight className="w-3 h-3" />
+                            </div>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setSelectedBrowserType(InterviewType.PRODUCT_SENSE); setPhase('browse-questions'); }}
+                              className="text-slate-400 hover:text-indigo-600 font-bold text-[8px] uppercase tracking-widest transition-colors"
+                            >
+                              Browse Questions
+                            </button>
                           </div>
                        </div>
-                    </button>
-                     <button 
+                    </div>
+                     <div 
                       onClick={() => handleStartInterview(InterviewType.ANALYTICAL_THINKING)} 
-                      className={`relative overflow-hidden group bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[3.5rem] shadow-2xl hover:scale-[1.02] text-left border-4 min-h-[340px] transition-all ${recommendedType === InterviewType.ANALYTICAL_THINKING ? 'border-emerald-300 ring-4 ring-emerald-500/20' : 'border-white/10'}`}
+                      className={`relative overflow-hidden group bg-white/40 backdrop-blur-xl p-5 rounded-2xl shadow-sm hover:shadow-md hover:scale-[1.01] text-left border transition-all cursor-pointer flex flex-col min-h-[160px] ${recommendedType === InterviewType.ANALYTICAL_THINKING ? 'border-emerald-200 ring-4 ring-emerald-500/5 shadow-emerald-100' : 'border-slate-200/60'}`}
                     >
                        {recommendedType === InterviewType.ANALYTICAL_THINKING && (
-                         <div className="absolute top-6 right-6 bg-white/20 backdrop-blur-md text-white px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/20">
+                         <div className="absolute top-4 right-4 bg-emerald-600/10 text-emerald-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-emerald-200/50">
                            Recommended
                          </div>
                        )}
-                       <div className="relative z-10 flex flex-col h-full text-white">
-                          <h3 className="text-4xl font-black mb-2 tracking-tighter">AnalyticalThinking</h3>
-                          <p className="text-emerald-50 font-bold text-sm leading-relaxed mb-8">Execute root cause analysis and metric trade-offs.</p>
-                          <div className="mt-auto bg-white text-emerald-700 font-black px-8 py-4 rounded-full text-[11px] uppercase tracking-[0.2em] w-fit flex items-center space-x-3 shadow-xl group-hover:bg-emerald-50 transition-colors">
-                             <span>START SESSION</span>
-                             <ArrowRight className="w-4 h-4" />
+                       <div className="relative z-10 flex flex-col h-full">
+                          <div className="w-8 h-8 bg-emerald-600/10 rounded-lg flex items-center justify-center text-emerald-600 mb-3 group-hover:scale-110 transition-transform">
+                            <ArrowRight className="w-4 h-4 rotate-[-45deg]" />
+                          </div>
+                          <h3 className="text-xl font-black mb-1 tracking-tight text-slate-900">Analytical Thinking</h3>
+                          <p className="text-slate-500 font-medium text-[11px] leading-relaxed mb-4">Execute root cause analysis and metric trade-offs.</p>
+                          <div className="mt-auto flex items-center justify-between">
+                            <div 
+                              onClick={(e) => { e.stopPropagation(); handleStartInterview(InterviewType.ANALYTICAL_THINKING); }}
+                              className="bg-emerald-600 text-white font-black px-4 py-2 rounded-lg text-[9px] uppercase tracking-widest flex items-center space-x-2 shadow-sm hover:bg-emerald-700 transition-colors cursor-pointer"
+                            >
+                               <span>START</span>
+                               <ArrowRight className="w-3 h-3" />
+                            </div>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setSelectedBrowserType(InterviewType.ANALYTICAL_THINKING); setPhase('browse-questions'); }}
+                              className="text-slate-400 hover:text-emerald-600 font-bold text-[8px] uppercase tracking-widest transition-colors"
+                            >
+                              Browse Questions
+                            </button>
                           </div>
                        </div>
-                    </button>
+                    </div>
                     
                     <button 
                       onClick={() => setPhase('custom-input')}
-                      className="relative overflow-hidden group bg-white p-8 rounded-[3.5rem] shadow-sm hover:shadow-xl hover:scale-[1.01] text-left border-2 border-slate-200 min-h-[140px] transition-all flex items-center gap-6"
+                      className="relative overflow-hidden group bg-slate-50 hover:bg-slate-100 p-4 rounded-xl shadow-sm hover:shadow-md hover:scale-[1.01] text-left border border-slate-200 transition-all flex items-center gap-4"
                     >
-                       <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-2xl group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                       <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-sm shadow-sm group-hover:text-indigo-600 transition-colors">
                          ✏️
                        </div>
-                       <div>
-                          <h3 className="text-xl font-black text-slate-900 tracking-tight mb-1">Custom Question</h3>
-                          <p className="text-slate-500 font-bold text-xs">Practice on your actual interview questions.</p>
+                       <div className="flex-1">
+                          <h3 className="text-sm font-black text-slate-900 tracking-tight">Custom Question</h3>
+                          <p className="text-slate-500 font-medium text-[10px]">Practice on your actual interview questions.</p>
                        </div>
+                       <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-slate-400 transition-colors" />
                     </button>
                  </div>
               </div>
-              <div className="lg:col-span-3">
+              <div className="w-full">
                 <MissionFeed missions={dailyMissions} isLoading={isMissionsLoading} onRefresh={loadMissions} onComplete={handleMissionComplete} />
               </div>
             </div>
           </div>
         )}
+        {phase === 'browse-questions' && (
+          <QuestionBrowser 
+            questions={questions} 
+            initialType={selectedBrowserType}
+            onSelect={(q) => handleStartInterview(q.type, q)}
+            onCancel={() => setPhase('config')}
+          />
+        )}
         {phase === 'custom-input' && (
           <CustomQuestionInput 
-            onStart={(text, type) => {
+            onStart={async (text, type) => {
               const customQ: Question = {
                 id: `custom-${Date.now()}`,
                 type,
                 text,
                 isCustom: true
               };
+              
+              // Set immediately for the session
               setCurrentQuestion(customQ);
               setPhase('question');
               sessionStorage.clear();
               setHasCheckpoint(false);
+
+              // Background: Generate hint and save to Supabase for approval
+              if (user) {
+                try {
+                  const hint = await geminiService.generateQuestionHint(text, type);
+                  await supabaseService.addCustomQuestion(user.id, text, type, hint);
+                } catch (err) {
+                  console.error("Failed to save custom question to Supabase:", err);
+                }
+              }
             }} 
             onCancel={() => setPhase('config')} 
           />

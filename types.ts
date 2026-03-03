@@ -22,6 +22,8 @@ export interface Question {
   text: string;
   hint?: string;
   isCustom?: boolean;
+  isApproved?: boolean;
+  category?: string; // For grouping in the browser
 }
 
 export interface FeedbackScore {
@@ -157,7 +159,7 @@ export interface HistoryItem {
   practiceSuccess?: boolean;
 }
 
-export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input' | 'practice-delta';
+export type InterviewPhase = 'config' | 'question' | 'recording' | 'analyzing' | 'grilling' | 'recording-followup' | 'result' | 'history' | 'settings' | 'custom-input' | 'practice-delta' | 'browse-questions';
 
 export type TrendDirection = 'improving' | 'plateauing' | 'regressing';
 

@@ -505,6 +505,36 @@ export class GeminiService {
     }
   }
 
+  async generateQuestionHint(text: string, type: InterviewType): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+    const prompt = `
+      You are a Staff PM interview coach.
+      Generate a single, high-signal strategic hint for the following interview question.
+      The hint should guide the candidate to think about specific pain points, strategic moats, or critical metrics without giving away the full answer.
+      
+      Question: "${text}"
+      Interview Type: ${type}
+      
+      Return only the hint text, max 20 words.
+    `;
+
+    try {
+      const response = await flashQueue.add(() =>
+        retryWithBackoff(
+          () => ai.models.generateContent({
+            model: MODEL_CONFIG.TRANSCRIPTION, // Use Flash for speed
+            contents: prompt
+          }),
+          { label: 'generateQuestionHint' }
+        )
+      );
+      return response.text?.trim() || "Think about the core user problem and the company's unique leverage.";
+    } catch (error) {
+      console.error("[GeminiService] Failed to generate hint:", error);
+      return "Think about the core user problem and the company's unique leverage.";
+    }
+  }
+
   /**
    * PASS 1: Transcription using Flash. 
    * Optimized for large audio files (up to 30 mins) where latency and cost-efficiency matter most.

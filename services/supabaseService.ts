@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { User, HistoryItem, KnowledgeMission, InterviewResult } from '../types';
+import { User, HistoryItem, KnowledgeMission, InterviewResult, Question, InterviewType } from '../types';
 
 // Initialize the Supabase client
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -323,5 +323,56 @@ export const supabaseService = {
     }
 
     return 'unknown';
+  },
+
+  async getQuestions(userId?: string): Promise<Question[]> {
+    if (!supabase) return [];
+    
+    let query = supabase.from('questions').select('*');
+    
+    if (userId) {
+      // Fetch approved questions OR questions created by this user
+      query = query.or(`is_approved.eq.true,created_by.eq.${userId}`);
+    } else {
+      query = query.eq('is_approved', true);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching questions:', error);
+      return [];
+    }
+
+    return data.map((q: any) => ({
+      id: q.id,
+      type: q.type as InterviewType,
+      text: q.text,
+      hint: q.hint,
+      isCustom: q.is_custom,
+      isApproved: q.is_approved,
+      category: q.question_type // Map question_type to category for grouping
+    }));
+  },
+
+  async addCustomQuestion(userId: string, text: string, type: InterviewType, hint: string): Promise<void> {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('questions')
+      .insert([
+        {
+          text,
+          type,
+          hint,
+          is_approved: false,
+          created_by: userId,
+          is_custom: true
+        }
+      ]);
+
+    if (error) {
+      console.error('Error adding custom question:', error);
+      throw error;
+    }
   }
 };
