@@ -497,7 +497,12 @@ export class GeminiService {
           jsonCandidate = jsonCandidate.replace(/[\r\n]+/g, ' ');
           // 2. Fix trailing commas
           jsonCandidate = jsonCandidate.replace(/,\s*([\]}])/g, '$1');
-          return JSON.parse(jsonCandidate);
+          try {
+            return JSON.parse(jsonCandidate);
+          } catch (e2) {
+            console.error("[GeminiService] JSON parse failed after sanitization. Candidate:", jsonCandidate);
+            throw e2;
+          }
       }
     } catch (e) {
       console.error("[GeminiService] JSON extraction failed. Raw text:", text, e);
@@ -647,7 +652,10 @@ export class GeminiService {
         )
       );
       
+      console.log("[GeminiService] Raw Mission Response:", response.text);
+      
       const missions = this.extractJson(response.text || "") || [];
+      console.log("[GeminiService] Extracted Missions:", missions);
       
       // Extract grounded URLs from metadata to validate
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
@@ -659,11 +667,14 @@ export class GeminiService {
         }
       });
 
+      console.log("[GeminiService] Grounded URLs:", Array.from(groundedUrls));
+
       const validMissions = missions.filter((m: any) => {
         if (!m.url || typeof m.url !== 'string') return false;
         if (!m.url.startsWith('https://')) return false;
         if (m.url.length < 15) return false;
-        if (/[^a-zA-Z0-9\-/.?=&:]/.test(m.url)) return false;
+        // Allow common URL characters including _, +, and ~ which appear in grounding redirects
+        if (/[^a-zA-Z0-9\-/.?=&:+_~]/.test(m.url)) return false;
         
         // Strict Validation: The URL must be present in the grounding metadata
         // or at least be a substring of a grounded URL (to handle query params/fragments)
@@ -680,6 +691,8 @@ export class GeminiService {
 
         return true;
       });
+
+      console.log("[GeminiService] Valid Missions after filtering:", validMissions);
 
       return validMissions.map((m: any) => ({
         ...m,
