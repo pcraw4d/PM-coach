@@ -129,7 +129,8 @@ const App: React.FC = () => {
         id: authUser.id,
         name: authUser.email?.split('@')[0] || 'Product Master',
         avatarSeed: 'pm-' + Date.now(),
-        joinedAt: Date.now()
+        joinedAt: Date.now(),
+        targetRole: ''
       };
       
       // Sync with Supabase
@@ -213,7 +214,7 @@ const App: React.FC = () => {
     setIsMissionsLoading(true);
     setLoadingStage('SEARCHING_RESOURCES');
     try {
-      const m = await geminiService.discoverMissions();
+      const m = await geminiService.discoverMissions(profile, user?.targetRole);
       if (m && m.length > 0) {
         setDailyMissions(m);
         localStorage.setItem('pm_coach_missions', JSON.stringify(m));

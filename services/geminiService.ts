@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, GenerateContentResponse, ThinkingLevel } from "@google/genai";
 import { InterviewType, InterviewResult, KnowledgeMission, ImprovementItem, AggregatedWeaknessProfile } from "../types.ts";
 import { computeSessionScore } from '../utils/scoringEngine';
-import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS, getSearchQueriesForWeaknesses } from '../constants.tsx';
+import { GOLDEN_PATH_PRODUCT_SENSE, GOLDEN_PATH_ANALYTICAL, RUBRIC_DEFINITIONS, getSearchQueriesForWeaknesses, PM_RESOURCES, MissionArchetype } from '../constants.tsx';
 
 // Update model names here when Google releases new versions
 // Current models: https://ai.google.dev/gemini-api/docs/models
@@ -556,96 +556,81 @@ export class GeminiService {
     return response.text || "";
   }
 
-  async discoverMissions(weaknessProfile?: AggregatedWeaknessProfile): Promise<KnowledgeMission[]> {
+  async discoverMissions(weaknessProfile?: AggregatedWeaknessProfile, targetRole?: string): Promise<KnowledgeMission[]> {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
     
-    let prompt = "";
-    
-    if (weaknessProfile && weaknessProfile.topWeaknesses.length >= 2) {
-       // Targeted Discovery
+    const archetypes = Object.values(MissionArchetype);
+    const sourceList = [
+      ...PM_RESOURCES.NEWSLETTERS,
+      ...PM_RESOURCES.COMPANY_BLOGS,
+      ...PM_RESOURCES.VC_STRATEGY
+    ];
+
+    let contextInstruction = "";
+    if (weaknessProfile && weaknessProfile.topWeaknesses.length > 0) {
        const topWeaknesses = weaknessProfile.topWeaknesses.slice(0, 2);
        const categories = topWeaknesses.map(w => w.category);
        const searchQueries = getSearchQueriesForWeaknesses(categories);
-
-       prompt = `
-  Search the web for high-quality Product Management learning content specifically addressing these skill gaps:
-  ${categories.join(", ")}
-
-  Use these search queries to find the best resources:
-  ${searchQueries.map(q => `- ${q}`).join("\n")}
-
-  Focus on "Timeless", "Seminal", and "High-Signal" content. Do not prioritize recent news; prioritize quality and authority.
-
-  Primary Sources (but not limited to):
-  - Lenny's Newsletter (lennysnewsletter.com)
-  - SVPG (svpg.com)
-  - Reforge (reforge.com)
-  - First Round Review (review.firstround.com)
-  - Shreyas Doshi (Substack, LinkedIn, Twitter)
-  - Mind the Product (mindtheproduct.com)
-  - Product Coalition (productcoalition.com)
-  - Bring the Donuts (ken-norton.com)
-  - Department of Product (departmentofproduct.com)
-  - Andrew Chen (andrewchen.com)
-
-  CRITICAL URL RULES:
-  1. You MUST use the EXACT URL returned by the Google Search tool.
-  2. Do NOT construct, guess, or predict URLs based on titles.
-  3. If you cannot find a verified, accessible URL for a resource, DO NOT include it.
-  4. 404 errors are unacceptable. Verify the URL exists in your search results.
-
-  Return a JSON array of exactly 4 objects.
-  CRITICAL: Return ONLY the JSON array. Do not include any conversational text, markdown formatting, or explanations.
-
-  Each object must have:
-  - id: lowercase-hyphenated slug max 40 chars, e.g. "lennys-metrics-framework"
-  - title: exact article or episode title
-  - source: publication name as it appears on the site
-  - url: the exact verified URL from your search
-  - type: exactly one of "article", "video", or "podcast"
-  - summary: 2-3 sentences describing the core PM insight a practitioner would take away
-  - xpAwarded: integer between 25 and 50. Use 50 for long-form strategic pieces, 25 for shorter reads
-  - targetedSkill: (Optional) The specific weakness category this content addresses (e.g. "${categories[0]}")
-`;
-    } else {
-       // Generic Discovery (Fallback)
-       prompt = `
-  Search the web for the highest-quality, most definitive Product Management learning content available.
-  
-  Focus on "Timeless", "Seminal", and "High-Signal" content. Do not prioritize recent news; prioritize quality and authority.
-
-  Primary Sources (but not limited to):
-  - Lenny's Newsletter (lennysnewsletter.com)
-  - SVPG (svpg.com)
-  - Reforge (reforge.com)
-  - First Round Review (review.firstround.com)
-  - Shreyas Doshi (Substack, LinkedIn, Twitter)
-  - Mind the Product (mindtheproduct.com)
-  - Product Coalition (productcoalition.com)
-  - Bring the Donuts (ken-norton.com)
-  - Department of Product (departmentofproduct.com)
-  - Andrew Chen (andrewchen.com)
-
-  CRITICAL URL RULES:
-  1. You MUST use the EXACT URL returned by the Google Search tool.
-  2. Do NOT construct, guess, or predict URLs based on titles.
-  3. If you cannot find a verified, accessible URL for a resource, DO NOT include it.
-  4. 404 errors are unacceptable. Verify the URL exists in your search results.
-
-  Return a JSON array of exactly 4 objects.
-  CRITICAL: Return ONLY the JSON array. Do not include any conversational text, markdown formatting, or explanations.
-
-  Each object must have:
-  - id: lowercase-hyphenated slug max 40 chars, e.g. "lennys-metrics-framework"
-  - title: exact article or episode title
-  - source: publication name as it appears on the site
-  - url: the exact verified URL from your search
-  - type: exactly one of "article", "video", or "podcast"
-  - summary: 2-3 sentences describing the core PM insight a practitioner would take away
-  - xpAwarded: integer between 25 and 50. Use 50 for long-form strategic pieces, 25 for shorter reads
-`;
+       
+       contextInstruction = `
+         The user is currently struggling with these specific skill gaps: ${categories.join(", ")}.
+         ${targetRole ? `Their target role is: ${targetRole}.` : ""}
+         
+         Generate and use highly specific search queries to find content that addresses these gaps.
+         Examples of query styles to use:
+         - "Best frameworks for ${categories[0]} in 2025"
+         - "${targetRole || "Staff PM"} case studies on ${categories[0]}"
+         - "Seminal articles on ${categories[1]} for ${targetRole || "Product Leaders"}"
+         
+         You can also use these pre-defined search terms: ${searchQueries.join(", ")}.
+       `;
+    } else if (targetRole) {
+       contextInstruction = `The user's target role is: ${targetRole}. Focus on finding content relevant to this level of seniority and responsibility.`;
     }
-    
+
+    const systemInstruction = `
+      You are the Editor-in-Chief of 'The Growth Horizon,' a premium publication for elite Product Managers. 
+      Your goal is to provide a balanced daily briefing that mixes timeless wisdom with modern tactical insights.
+    `;
+
+    const prompt = `
+      ${contextInstruction}
+
+      Search the web for high-quality Product Management learning content. 
+      You MUST fill exactly 4 slots, one for each of these archetypes:
+      1. ${MissionArchetype.THE_CLASSIC}: A seminal framework or timeless principle (e.g., Jobs to be Done, RICE, Product-Market Fit).
+      2. ${MissionArchetype.THE_CASE_STUDY}: A real-world story of a product launch, failure, or pivot from a reputable company.
+      3. ${MissionArchetype.THE_MODERN_TAKE}: High-signal content from the last 18-24 months (e.g., AI Product Management, PLG, modern growth loops).
+      4. ${MissionArchetype.THE_TACTICAL}: A "how-to" on a specific execution skill (e.g., writing PRDs, SQL for PMs, experimentation design).
+
+      Primary Sources to prioritize:
+      ${sourceList.map(s => `- ${s}`).join("\n")}
+
+      CRITICAL RULES:
+      1. At least 2 of the 4 items must have been published or gained prominence in the last 24 months.
+      2. At least 1 item must be a "Seminal" framework or principle (The Classic).
+      3. Use the Google Search tool to find the most direct, official URL for each article.
+      4. Prefer the original source (e.g., substack.com, company.com/blog, review.firstround.com) over social media mirrors or aggregators.
+      5. You MUST use the EXACT URL returned by the Google Search tool.
+      6. Do NOT construct, guess, or predict URLs based on titles.
+      7. If you cannot find a verified, accessible URL for a resource, DO NOT include it.
+      8. 404 errors are unacceptable. Verify the URL exists in your search results.
+
+      Return a JSON array of exactly 4 objects.
+      CRITICAL: Return ONLY the JSON array. Do not include any conversational text, markdown formatting, or explanations.
+
+      Each object must have:
+      - id: lowercase-hyphenated slug max 40 chars, e.g. "lennys-metrics-framework"
+      - title: exact article or episode title
+      - source: publication name as it appears on the site
+      - url: the exact verified URL from your search
+      - type: exactly one of "article", "video", or "podcast"
+      - summary: 2-3 sentences describing the core PM insight a practitioner would take away
+      - xpAwarded: integer between 25 and 50. Use 50 for long-form strategic pieces, 25 for shorter reads
+      - archetype: the exact archetype name used (e.g., "${MissionArchetype.THE_CLASSIC}")
+      - targetedSkill: (Optional) The specific weakness category this content addresses
+    `;
+
     try {
       const response = await flashQueue.add(() =>
         retryWithBackoff(
@@ -653,8 +638,9 @@ export class GeminiService {
             model: MODEL_CONFIG.MISSIONS,
             contents: prompt,
             config: { 
+              systemInstruction,
               tools: [{ googleSearch: {} }], 
-              temperature: 0.1
+              temperature: 0.5
             }
           }),
           { label: 'discoverMissions — search' }

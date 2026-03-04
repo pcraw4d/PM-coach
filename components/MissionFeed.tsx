@@ -77,12 +77,11 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
             >
               <div className="space-y-3">
                 <div className="flex justify-between items-start">
-                  <div className="flex flex-col items-start gap-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-md">{mission.source}</p>
-                    {mission.targetedSkill && (
-                      <span className="text-[8px] font-black text-rose-500 uppercase tracking-widest bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100 flex items-center gap-1">
-                        <span className="w-1 h-1 rounded-full bg-rose-500 animate-pulse"></span>
-                        {mission.targetedSkill}
+                    {mission.archetype && (
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                        {mission.archetype}
                       </span>
                     )}
                   </div>
@@ -90,6 +89,15 @@ export const MissionFeed: React.FC<MissionFeedProps> = ({ missions, onComplete, 
                 </div>
                 <h4 className="text-lg font-black text-slate-900 leading-snug">{mission.title}</h4>
                 <p className="text-sm text-slate-500 leading-relaxed line-clamp-3">{mission.summary}</p>
+                
+                {mission.targetedSkill && (
+                  <div className="pt-2 flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 bg-rose-50/50 border border-rose-100/50 px-3 py-1.5 rounded-xl">
+                      <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest">Why this?</span>
+                      <span className="text-[10px] font-bold text-rose-600">Based on your recent practice in {mission.targetedSkill}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="mt-6 pt-5 border-t border-slate-50">

@@ -10,10 +10,11 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdate, onDeleteAccount, onBack }) => {
   const [name, setName] = useState(user.name);
+  const [targetRole, setTargetRole] = useState(user.targetRole || '');
   const [isResetting, setIsResetting] = useState(false);
 
   const handleSave = () => {
-    onUpdate({ name });
+    onUpdate({ name, targetRole });
     alert("Profile Updated");
   };
 
@@ -66,6 +67,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdate, onDe
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 focus:bg-white outline-none transition-all font-bold text-slate-800"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Role</label>
+              <input
+                type="text"
+                value={targetRole}
+                onChange={(e) => setTargetRole(e.target.value)}
+                placeholder="e.g. Staff PM, Senior PM at Google"
                 className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 focus:bg-white outline-none transition-all font-bold text-slate-800"
               />
             </div>

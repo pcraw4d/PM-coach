@@ -14,6 +14,7 @@ export interface User {
   avatarSeed: string;
   joinedAt: number;
   hasCompletedOnboarding?: boolean;
+  targetRole?: string;
 }
 
 export interface Question {
@@ -48,6 +49,7 @@ export interface KnowledgeMission {
   xpAwarded: number;
   isCompleted?: boolean;
   targetedSkill?: string;
+  archetype?: string;
 }
 
 export interface SyncData {

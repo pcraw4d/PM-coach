@@ -291,6 +291,40 @@ export const RUBRIC_DEFINITIONS: Record<string, {
   }
 };
 
+export enum MissionArchetype {
+  THE_CLASSIC = "THE CLASSIC",
+  THE_CASE_STUDY = "CASE STUDY",
+  THE_MODERN_TAKE = "MODERN TAKE",
+  THE_TACTICAL = "TACTICAL"
+}
+
+export const PM_RESOURCES = {
+  NEWSLETTERS: [
+    "Lenny's Newsletter (lennysnewsletter.com)",
+    "Shreyas Doshi (Substack, LinkedIn)",
+    "Casey Accidental (caseyaccidental.com)",
+    "Elena Verna (Substack)",
+    "Bring the Donuts (ken-norton.com)",
+    "Department of Product (departmentofproduct.com)"
+  ],
+  COMPANY_BLOGS: [
+    "Netflix Tech Blog",
+    "Airbnb Design & Engineering",
+    "Stripe Engineering Blog",
+    "Intercom Blog",
+    "Meta Engineering",
+    "Uber Engineering"
+  ],
+  VC_STRATEGY: [
+    "First Round Review (review.firstround.com)",
+    "a16z (a16z.com)",
+    "Sequoia Capital (sequoiacap.com)",
+    "Stratechery (stratechery.com)",
+    "SVPG (svpg.com)",
+    "Reforge (reforge.com)"
+  ]
+};
+
 export const WEAKNESS_SEARCH_MAPPING: Record<string, string[]> = {
   // Product Sense
   "Goal Definition": ["product strategy framework", "setting product goals", "product vision examples"],
